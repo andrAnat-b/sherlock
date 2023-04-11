@@ -1,10 +1,9 @@
 -module(sherlock_uniworker).
 
--behavior(sherlock_worker).
 -behaviour(gen_server).
 
 %% API
--export([start_link/1, start_worker/1]).
+-export([start_link/1]).
 -export([sync/2]).
 -export([async/2]).
 %% gen_server callbacks
@@ -19,9 +18,6 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-
-start_worker(Args) ->
-  start_link(Args).
 
 sync(WorkerPid, Job) ->
   gen_server:call(WorkerPid, #job{fn = Job}).

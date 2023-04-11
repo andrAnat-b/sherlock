@@ -8,6 +8,6 @@ LOCAL_DEPS += compiler
 
 DEPS += watson
 
-dep_watson = git https://github.com/andranat-b/watson.git
+dep_watson = cp ../watson
 
 include erlang.mk

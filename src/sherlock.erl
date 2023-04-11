@@ -32,6 +32,7 @@ checkout(Name, Timeout) ->
 
 
 
+checkin(_Name, {timeout, _}) -> ok;
 checkin(Name, Pid) ->
   sherlock_pool:release_worker(Name, Pid).
 
