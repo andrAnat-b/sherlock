@@ -1,312 +1,195 @@
 -module(sherlock_pool).
--include("sherlock_defaults_h.hrl").
 
 %% API
--export([new/2]).
--export([stop/1]).
+-export([push_job_to_queue/1]).
+-export([push_job_to_queue/2]).
+-export([destroy/1]).
+%% Internal API
+-export([init/0]).
+-export([create/2]).
+-export([push_worker/2]).
+-export([mx_size/1]).
+-export([mn_size/1]).
+-export([update_csize/2]).
+-export([get_qid/1]).
+-export([get_wid/1]).
+-define(CTH, 1 bsl 64).
 
--export([lease_worker/1]).
--export([lease_worker/2]).
--export([release_worker/2]).
+-define(DEFAULT_TTL, 5000).
 
-%% INTERNAL API
--export(['_new_main_'/0]).
--export([get_pool_opts/1]).
--export([get_size/1]).
--export([get_max_size/1]).
--export([get_min_size/1]).
--export([get_queue/1]).
--export([get_standby/1]).
--export([usage_decr/1]).
--export([usage_incr/1]).
--export([usage_get/1]).
--export([jdiff/1]).
-
--export([worker_return/2]).
-
--export([join_pool/2]).
--export([leave_pool/2]).
-
-
--define(COUNTER_RESOLUTION, 64).
--define(COUNTER_TRESHOLD, 1 bsl ?COUNTER_RESOLUTION).
-
--record(read_concurrency,  {bool = true}).
--record(write_concurrency, {bool = true}).
--record(keypos, {idx = 1}).
-
--record(sherlock_msg, {
-  ref,
-  order,
-  worker_pid
-                      }).
-
-
-
--record(sherlock_pool,                {
-  name = default                      ,
-  size = 0                            ,
-  min_size = 1                        ,
-  max_size = 1                        ,
-  used = 0                            ,
-  queue = nil                         ,
-  standby = nil                       ,
-  stb_id = -1                         ,
-  que_id = -1,
-  pool_args = [],
-  pool_mod,
-  pool_fun
-                                      }).
-
-
--record(sherlock_queue, {
-  order,
-  ref,
-  proc = self(),
-  ttl = ?SHERLOCK_WAIT_UNTIL(?SHERLOCK_POOL_DEFAULT_TTL)
-                        }).
-
-
-
--record(sherlock_standby,{
-  idx,
-  pid,
-  lut = ?SHERLOCK_WAIT_UNTIL(0)
+-record(?MODULE,{
+  name,
+  c_size = 0,
+  mx_size = 1,
+  mn_size = 1,
+  q_id = -1,
+  w_id = -1,
+  qt,
+  wt,
+  mfa = {s,w,[]}
 }).
 
-'_new_main_'() ->
-  Opts = [
-    public,
-    set,
-    named_table,
-    #read_concurrency{},
-    #write_concurrency{},
-    #keypos{idx = #sherlock_pool.name}
-  ],
-  ets:new(?MODULE, Opts).
+-record(sherlock_job,{
+  q_id,
+  ref,
+  pid,
+  ttl
+}).
 
-create_queue_tab() ->
-  ets:new(?MODULE, [set, public, #write_concurrency{}, #read_concurrency{}, #keypos{idx = #sherlock_queue.order}]).
+-record(sherlock_wrk,{
+  w_id,
+  pid
+}).
 
-create_standby_tab() ->
-  ets:new(?MODULE, [set, public, #write_concurrency{}, #read_concurrency{}, #keypos{idx = #sherlock_standby.idx}]).
+-record(sherlock_msg, {ref, workerpid}).
 
-get_queue(PoolName) ->
-  case ets:lookup(?MODULE, PoolName) of
-    [#sherlock_pool{queue = QTRef}|_] -> QTRef;
-    _ -> throw({?MODULE, {undefined_pool, PoolName}})
+ttl(infinity = I) -> I;
+ttl(Int) when is_integer(Int) and (Int >= 0) -> erlang:system_time(millisecond) + Int.
+
+cts() ->
+  ttl(0).
+
+init() ->
+  Options = [named_table, set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #?MODULE.name}],
+  ets:new(?MODULE, Options).
+
+init_wt() ->
+  Options = [set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #sherlock_wrk.w_id}],
+  ets:new(?MODULE, Options).
+
+init_qt() ->
+  Options = [set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #sherlock_wrk.w_id}],
+  ets:new(?MODULE, Options).
+
+create(PoolName, PoolArgs) ->
+  Record = #?MODULE{},
+  MFA = maps:get(mfa, PoolArgs, Record#?MODULE.mfa),
+  Min = maps:get(min_size, PoolArgs, Record#?MODULE.mn_size),
+  Max = maps:get(max_size, PoolArgs, max(Record#?MODULE.mx_size, Min)),
+  Pool = Record#?MODULE{
+    name = PoolName,
+    mfa = MFA,
+    wt = init_wt(),
+    qt = init_qt(),
+    mx_size = Max,
+    mn_size = Min
+  },
+  ets:insert_new(?MODULE, Pool).
+
+destroy(PoolName) ->
+  ets:delete(?MODULE, PoolName).
+
+mx_size(PoolName) ->
+  ets:lookup_element(?MODULE, PoolName, #?MODULE.mx_size).
+
+mn_size(PoolName) ->
+  ets:lookup_element(?MODULE, PoolName, #?MODULE.mn_size).
+
+worker_id_incr(PoolName) ->
+  ets:update_counter(?MODULE, PoolName, {#?MODULE.w_id, 1, ?CTH, 0}).
+
+queue_id_incr(PoolName) ->
+  ets:update_counter(?MODULE, PoolName, {#?MODULE.q_id, 1, ?CTH, 0}).
+
+w_tab(PoolName) ->
+  ets:lookup_element(?MODULE, PoolName, #?MODULE.wt).
+q_tab(PoolName) ->
+  ets:lookup_element(?MODULE, PoolName, #?MODULE.qt).
+
+update_csize(PoolName, Csize) ->
+  ets:update_element(?MODULE, PoolName, {#?MODULE.c_size, Csize}).
+
+get_wid(PoolName) ->
+  ets:lookup_element(?MODULE, PoolName, #?MODULE.w_id).
+
+get_qid(PoolName) ->
+  ets:lookup_element(?MODULE, PoolName, #?MODULE.q_id).
+
+take_from_qt(Qtab, Id, WorkerPid) ->
+  Cts = cts(),
+  case ets:take(Qtab, Id) of
+    [#sherlock_job{ttl = Sts}] when (Sts > Cts) ->
+      retry;
+    [#sherlock_job{ref = R, pid = Pid}] ->
+      case is_process_alive(Pid) of
+        true ->
+%%          maybe monitor ???
+          {ok, Pid, #sherlock_msg{ref = R, workerpid = WorkerPid}};
+        false ->
+          retry
+      end;
+    [] ->
+      gone
+  end.
+take_from_wt(Wtab, Id) ->
+  case ets:take(Wtab, Id) of
+    [#sherlock_wrk{pid = WorkerPid}] ->
+      {ok, WorkerPid};
+    [] ->
+      gone
   end.
 
-get_standby(PoolName) ->
-  case ets:lookup(?MODULE, PoolName) of
-    [#sherlock_pool{standby = STRef}|_] -> STRef;
-    _ -> throw({?MODULE, {undefined_pool, PoolName}})
+push_wt(WTab, Id, WorkerPid) ->
+  ets:insert(WTab, #sherlock_wrk{w_id = Id, pid = WorkerPid}).
+
+push_worker(PoolName, WorkerPid) ->
+  QTab = q_tab(PoolName),
+  WTab = w_tab(PoolName),
+  push_worker(PoolName, WorkerPid, QTab, WTab).
+
+push_worker(PoolName, WorkerPid, QTab, WTab) ->
+  NextId = worker_id_incr(PoolName),
+  _ = push_wt(WTab, NextId, WorkerPid),
+  case take_from_qt(QTab, NextId, WorkerPid) of
+    {ok, Dest, Msg} ->
+      case take_from_wt(WTab, NextId) of
+        {ok, _} ->
+          Dest ! Msg;
+        gone -> ok
+      end;
+    retry ->
+      take_from_wt(WTab, NextId),
+      push_worker(PoolName, QTab, WTab, WorkerPid);
+    gone ->
+      ok
   end.
 
-get_size(PoolName) ->
-  case ets:lookup(?MODULE, PoolName) of
-    [#sherlock_pool{size = Size}|_] -> Size;
-    _ -> throw({?MODULE, {undefined_pool, PoolName}})
+push_qt(QTab, NextId, Timeout, WaitingPid, Secret) ->
+  ets:insert(QTab, #sherlock_job{q_id = NextId, ttl = ttl(Timeout), pid = WaitingPid, ref = Secret}).
+
+push_job_to_queue(PoolName) ->
+  push_job_to_queue(PoolName, ?DEFAULT_TTL).
+push_job_to_queue(PoolName, Timeout) ->
+  QTab = q_tab(PoolName),
+  WTab = w_tab(PoolName),
+  WaitingPid = self(),
+  Secret = erlang:make_ref(),
+  case push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) of
+    {ok, _WorkerPid} = Result->  Result;
+    wait ->
+      wait(Secret, Timeout)
   end.
 
-get_min_size(PoolName) ->
-  case ets:lookup(?MODULE, PoolName) of
-    [#sherlock_pool{min_size = Size}|_] -> Size;
-    _ -> throw({?MODULE, {undefined_pool, PoolName}})
+push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
+  NextId = queue_id_incr(PoolName),
+  _ = push_qt(QTab, NextId, Timeout, WaitingPid, Secret),
+  case take_from_wt(WTab, NextId) of
+    {ok, WorkerPid} = Result ->
+      case take_from_qt(QTab, NextId, WorkerPid) of
+        {ok, _, _} -> Result;
+        gone ->
+          wait
+      end;
+    gone ->
+      wait
   end.
 
-get_max_size(PoolName) ->
-  case ets:lookup(?MODULE, PoolName) of
-    [#sherlock_pool{max_size = Size}|_] -> Size;
-    _ -> throw({?MODULE, {undefined_pool, PoolName}})
-  end.
-
-
-usage_get(PoolName) ->
-  case ets:lookup(?MODULE, PoolName) of
-    [#sherlock_pool{used = Size}|_] -> Size;
-    _ -> throw({?MODULE, {undefined_pool, PoolName}})
-  end.
-
-usage_incr(PoolName) ->
-  ets:update_counter(?MODULE, PoolName, {#sherlock_pool.used, 1}).
-
-usage_decr(PoolName) ->
-  ets:update_counter(?MODULE, PoolName, {#sherlock_pool.used, -1, 0, 0}).
-
-
-next_queue_id(PoolName) ->
-  ets:update_counter(?MODULE, PoolName, {#sherlock_pool.que_id, 1, ?COUNTER_TRESHOLD, 0}).
-
-next_worker_id(PoolName) ->
-  ets:update_counter(?MODULE, PoolName, {#sherlock_pool.stb_id, 1, ?COUNTER_TRESHOLD, 0}).
-
-store_job(PoolName, WaitingPid, Ref, TTL) ->
-  Id = next_queue_id(PoolName),
-  QueTabRef = get_queue(PoolName),
-  TimeToLive = calc_ttl(TTL),
-  ets:insert(QueTabRef, #sherlock_queue{order = Id, ref = Ref, proc = WaitingPid, ttl = TimeToLive}),
-  Id.
-
-calc_ttl(infinity) ->
-  infinity;
-calc_ttl(TTL) when is_integer(TTL) and (TTL >= 0) ->
-  ?SHERLOCK_WAIT_UNTIL(TTL).
-
-take_job(PoolName, JobID) ->
-  CurrentTime = erlang:system_time(millisecond),
-  QueTabRef = get_queue(PoolName),
-  case ets:take(QueTabRef, JobID) of
-    [#sherlock_queue{ttl = StoredTime}|_] when is_integer(StoredTime) and (CurrentTime > StoredTime) -> pass;
-    [#sherlock_queue{} = Job|_] -> Job;
-    [] -> pass
-  end.
-
-worker_return(PoolName, WorkerPid) ->
-  usage_decr(PoolName),
-  Id = next_worker_id(PoolName),
-  StbTabRef = get_standby(PoolName),
-  ets:insert(StbTabRef, #sherlock_standby{idx = Id, pid = WorkerPid}),
-  Id.
-
-take_worker(PoolName, JobID) ->
-  StbTabRef = get_standby(PoolName),
-  case ets:take(StbTabRef, JobID) of
-    [#sherlock_standby{pid = WorkerPid}|_] -> {ok, WorkerPid};
-    [] -> pass
-  end.
-
-resize_pool(PoolName, Q) ->
-  ets:update_counter(?MODULE, PoolName, {#sherlock_pool.size, Q}).
-
-join_pool(PoolName, WorkerPid) ->
-  MaxSize = get_max_size(PoolName),
-  NewSize = resize_pool(PoolName, 1),
-  case NewSize =< MaxSize of
-    true ->
-      release_worker(PoolName, WorkerPid);
-    _ ->
-      resize_pool(PoolName, -1),
-      leave_pool(PoolName, WorkerPid),
-      {pool, oversize}
-  end.
-
-leave_pool(PoolName, WorkerPid) ->
-  MinSize = get_min_size(PoolName),
-  NewSize = resize_pool(PoolName, -1),
-  case NewSize >= MinSize of
-    true ->
-      WorkerPid;
-    _ ->
-      resize_pool(PoolName, 1),
-      worker_return(PoolName, WorkerPid),
-      {pool, undersize}
-  end.
-
-wait_for_enqueued(Ref, JobId, Timeout) ->
+wait(Secret, Timeout) ->
   receive
-    #sherlock_msg{ref = Ref, order = JobId, worker_pid = WorkerPid} ->
-      erlang:link(WorkerPid),
-      {ok, WorkerPid}
+    #sherlock_msg{ref = Secret, workerpid = Worker} ->
+      _ = wait(Secret, 0),
+      {ok, Worker}
   after
     Timeout ->
-      timed_out
-  end.
-
-
-get_pool_opts(PoolName) ->
-  case ets:lookup(?MODULE, PoolName) of
-    [#sherlock_pool{} = Opts|_] ->
-      #{
-        worker_args => Opts#sherlock_pool.pool_args,
-        mod => Opts#sherlock_pool.pool_mod,
-        size => Opts#sherlock_pool.size,
-        min_size => Opts#sherlock_pool.min_size,
-        max_size => Opts#sherlock_pool.max_size,
-        fn => Opts#sherlock_pool.pool_fun
-      };
-    [] -> throw({?MODULE, {undefined_pool, PoolName}})
-  end.
-
-jdiff(PoolName) ->
-  case ets:lookup(?MODULE, PoolName) of
-    [#sherlock_pool{stb_id = Standby, que_id = Queue}|_] -> Queue - Standby;
-    _ -> throw({?MODULE, {undefined_pool, PoolName}})
-  end.
-
-%% =========================================================================
-
-new(Name, Opts) ->
-  try get_size(Name),
-    throw({?MODULE, {name_occupied, Name}})
-  catch _What ->
-    Default = #sherlock_pool{},
-    Min = maps:get(min_size, Opts, Default#sherlock_pool.min_size),
-    Max = maps:get(max_size, Opts, erlang:max(Min, Default#sherlock_pool.max_size)),
-    Module     = maps:get(mod, Opts, sherlock_uniworker),
-    Function   = maps:get(fn,  Opts, start_link),
-    NewPoolRec = #sherlock_pool{
-      name = Name,
-      min_size = Min,
-      max_size = Max,
-      queue = create_queue_tab(),
-      standby = create_standby_tab(),
-      pool_mod = Module,
-      pool_fun = Function,
-      pool_args = maps:get(worker_args, Opts, [#{state => 0}])
-    },
-    ets:insert_new(?MODULE, NewPoolRec)
-  end.
-
-stop(Name) ->
-  ets:delete(?MODULE, Name).
-
-
-lease_worker(PoolName) ->
-  lease_worker(PoolName, ?SHERLOCK_POOL_DEFAULT_TTL).
-
-lease_worker(PoolName, Timeout) ->
-  usage_incr(PoolName),
-  Ref = erlang:make_ref(),
-  JobId = store_job(PoolName, self(), Ref, Timeout),
-  case take_worker(PoolName, JobId) of
-    {ok, WorkerPid} ->
-      case take_job(PoolName, JobId) of
-        #sherlock_queue{} ->
-          erlang:link(WorkerPid),
-          WorkerPid;
-        _ ->
-          wait_for_enqueued(Ref, JobId, Timeout)
-      end;
-    pass ->
-      case wait_for_enqueued(Ref, JobId, Timeout) of
-        {ok, WorkerPid} ->
-          WorkerPid;
-        timed_out ->
-          {timeout, Timeout}
-      end
-  end.
-
-
-release_worker(PoolName, WorkerPid) ->
-  erlang:unlink(WorkerPid),
-  JobId = worker_return(PoolName, WorkerPid),
-  case take_job(PoolName, JobId) of
-    #sherlock_queue{ref = Ref, proc = WaitingPid} ->
-      case take_worker(PoolName, JobId) of
-        {ok, WorkerPid} ->
-          case is_process_alive(WaitingPid) of
-            true ->
-              erlang:send(WaitingPid, #sherlock_msg{order = JobId, ref = Ref, worker_pid = WorkerPid}),
-              case is_process_alive(WaitingPid) of
-                true -> ok;
-                _ -> release_worker(PoolName, WorkerPid)
-              end;
-            _ ->
-              release_worker(PoolName, WorkerPid)
-          end;
-        _ ->
-          ok
-      end;
-    _ -> ok
+      {timeout, Timeout}
   end.
