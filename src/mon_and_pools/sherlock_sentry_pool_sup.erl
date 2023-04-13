@@ -34,9 +34,9 @@ start_link(Name, Args) ->
         [ChildSpec :: supervisor:child_spec()]}}
   | ignore | {error, Reason :: term()}).
 init({Name, Args}) ->
-  MaxRestarts = 1000,
-  MaxSecondsBetweenRestarts = 3600,
-  SupFlags = #{strategy => all_for_one,
+  MaxRestarts = 1,
+  MaxSecondsBetweenRestarts = 1,
+  SupFlags = #{strategy => rest_for_one,
                intensity => MaxRestarts,
                period => MaxSecondsBetweenRestarts},
 
@@ -45,7 +45,7 @@ init({Name, Args}) ->
              restart => permanent,
              shutdown => 2000,
              type => worker,
-             modules => ['AModule']},
+             modules => [sherlock_mon_sup]},
 
   Workers = #{id => {sherlock_pool_holder, Name},
              start => {sherlock_pool_holder, start_link, [{Name, Args}]},

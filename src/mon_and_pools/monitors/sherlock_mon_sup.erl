@@ -3,7 +3,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/2]).
+-export([start_link/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -15,8 +15,8 @@
 %%%===================================================================
 
 %% @doc Starts the supervisor
--spec(start_link(any(), any()) -> {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
-start_link(Name, Args) ->
+-spec(start_link(any()) -> {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
+start_link({Name, Args}) ->
   supervisor:start_link(sherlock_registry:via({?MODULE, Name}), ?MODULE, {Name, Args}).
 
 %%%===================================================================
