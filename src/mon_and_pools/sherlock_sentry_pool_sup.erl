@@ -44,7 +44,7 @@ init({Name, Args}) ->
              start => {sherlock_mon_sup, start_link, [{Name, Args}]},
              restart => permanent,
              shutdown => 2000,
-             type => worker,
+             type => supervisor,
              modules => [sherlock_mon_sup]},
 
   Workers = #{id => {sherlock_pool_holder, Name},

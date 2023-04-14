@@ -53,7 +53,7 @@ transaction(Name, Fun) when is_function(Fun, 1) ->
   case checkout(Name) of
     {ok, Pid, Refer} ->
       Result = Fun(Pid),
-      checkin(Name, {pid, Refer}),
+      checkin(Name, {Pid, Refer}),
       Result;
     {error, _} = Error ->
       Error
