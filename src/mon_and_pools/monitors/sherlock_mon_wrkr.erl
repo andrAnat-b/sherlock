@@ -53,7 +53,6 @@ start_link({Name, Id}) ->
   {ok, State :: #sherlock_mon_wrkr_state{}} | {ok, State :: #sherlock_mon_wrkr_state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init({Name, _Id}) ->
-  lager:info("~p name ~p", [?MODULE, Name]),
   {ok, #sherlock_mon_wrkr_state{name = Name}}.
 
 %% @private

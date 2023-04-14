@@ -44,6 +44,7 @@ start_link({Name, Args}) ->
   {ok, State :: #sherlock_pool_holder_state{}} | {ok, State :: #sherlock_pool_holder_state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init({Name, Args}) ->
+  process_flag(trap_exit, true),
   sherlock_pool:create(Name, Args),
   WorkersWithRefs = do_start_childs(Args),
   List = [sherlock_pool:push_worker(Name, WorkerPid) || {_ , WorkerPid} <- WorkersWithRefs],
@@ -97,12 +98,20 @@ handle_info(#resize{secret = S}, State = #sherlock_pool_holder_state{secret = S,
   ActualSizePrev = erlang:length(Workers),
   sherlock_pool:update_csize(Name, ActualSizePrev),
   Direction = pool_resize_direction(Name, ActualSizePrev),
-  lager:info("RESIZE ~p", [Direction]),
-  NewState = make_resize(Direction, State),
+  {AditionalWorkersPid, NewState} = make_resize(Direction, State, []),
+  [sherlock_pool:push_worker(Name, Pid) || Pid <- AditionalWorkersPid],
   resize(S),
   {noreply, NewState};
-handle_info(#'DOWN'{}, State = #sherlock_pool_holder_state{}) ->
-  {noreply, State};
+handle_info(#'DOWN'{ref = MonRef, id = OldWorker}, State = #sherlock_pool_holder_state{name = Name, workers = Work}) ->
+  sherlock_pool:occup(Name),
+  #sherlock_pool_holder_state{mirror = Mir, monitors = Mon} = State,
+  {MonRef, NewMir} = maps:take(OldWorker, Mir),
+  NewMon = maps:without([MonRef], Mon),
+  NewWorkersList = [Pid ||Pid<-Work, Pid =/= OldWorker],
+  State0 = State#sherlock_pool_holder_state{monitors = NewMon, mirror = NewMir, workers = NewWorkersList},
+  {[NewWorker], NewState} = make_resize({enlarge, 1}, State0, []),
+  sherlock_pool:replace_worker(Name, OldWorker, NewWorker),
+  {noreply, NewState};
 handle_info(_Info, State = #sherlock_pool_holder_state{}) ->
   {noreply, State}.
 
@@ -143,7 +152,7 @@ do_init_start(M, F, A) ->
   end.
 
 resize(Secret) ->
-  erlang:send_after(10000, self(), #resize{secret = Secret}).
+  erlang:send_after(50, self(), #resize{secret = Secret}).
 
 pool_resize_direction(Name, CurSize) ->
   Max = sherlock_pool:mx_size(Name), % 16
@@ -159,9 +168,9 @@ pool_resize_direction(Name, CurSize) ->
       {shrink, 1}
   end.
 
-make_resize({enlarge, 0}, State) ->
-  State;
-make_resize({enlarge, N}, State) ->
+make_resize({enlarge, 0}, State, Acc) ->
+  {Acc, State};
+make_resize({enlarge, N}, State, Acc) ->
   #sherlock_pool_holder_state{name = Name, args = Args, workers = WrkL, monitors = Mon, mirror = Mir} = State,
   {M, F, A} = maps:get(mfa, Args),
   try
@@ -169,16 +178,15 @@ make_resize({enlarge, N}, State) ->
     NewWrkL = [WorkerPid|WrkL],
     NewMon = maps:merge(Mon, #{MRef => WorkerPid}),
     NewMir = maps:merge(Mir, #{WorkerPid => MRef}),
-    sherlock_pool:push_worker(Name, WorkerPid),
     NewState = State#sherlock_pool_holder_state{workers = NewWrkL, monitors = NewMon, mirror = NewMir},
-    make_resize({enlarge, N-1}, NewState)
+    {[WorkerPid|Acc], make_resize({enlarge, N-1}, NewState, Acc)}
   catch
     _ ->
-      make_resize({enlarge, N-1}, State)
+      {Acc, make_resize({enlarge, N-1}, State, Acc)}
   end;
-make_resize({shrink, 0}, State) ->
-  State;
-make_resize({shrink, N}, State = #sherlock_pool_holder_state{name = Name}) ->
+make_resize({shrink, 0}, State, Acc) ->
+  {Acc, State};
+make_resize({shrink, N}, State = #sherlock_pool_holder_state{name = Name}, Acc) ->
   case sherlock_pool:push_job_to_queue(Name, 5) of
     {ok, Worker} ->
       #sherlock_pool_holder_state{name = Name, workers = WrkL, monitors = Mon, mirror = Mir} = State,
@@ -186,9 +194,9 @@ make_resize({shrink, N}, State = #sherlock_pool_holder_state{name = Name}) ->
       {Ref, NewMir} = maps:take(Worker, Mir),
       NewMon = maps:without([Ref], Mon),
       erlang:demonitor(Ref, [flush]),
-      erlang:exit(Worker, normal),
+      erlang:exit(Worker, kill),
       NewState = State#sherlock_pool_holder_state{name = Name, monitors = NewMon, mirror = NewMir, workers = NewWorkerL},
-      make_resize({shrink, N-1}, NewState);
+      make_resize({shrink, N-1}, NewState, Acc);
     _ ->
-      make_resize({shrink, N-1}, State)
+      make_resize({shrink, N-1}, State, Acc)
   end.
