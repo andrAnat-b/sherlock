@@ -98,8 +98,8 @@ handle_info(#resize{secret = S}, State = #sherlock_pool_holder_state{secret = S,
   ActualSizePrev = erlang:length(Workers),
   sherlock_pool:update_csize(Name, ActualSizePrev),
   Direction = pool_resize_direction(Name, ActualSizePrev),
-  {AditionalWorkersPid, NewState} = make_resize(Direction, State, []),
-  [sherlock_pool:push_worker(Name, Pid) || Pid <- AditionalWorkersPid],
+  {AdditionalWorkersPid, NewState} = make_resize(Direction, State, []),
+  [sherlock_pool:push_worker(Name, Pid) || Pid <- AdditionalWorkersPid],
   resize(S),
   {noreply, NewState};
 handle_info(#'DOWN'{ref = MonRef, id = OldWorker}, State = #sherlock_pool_holder_state{name = Name, workers = Work}) ->
@@ -171,7 +171,7 @@ pool_resize_direction(Name, CurSize) ->
 make_resize({enlarge, 0}, State, Acc) ->
   {Acc, State};
 make_resize({enlarge, N}, State, Acc) ->
-  #sherlock_pool_holder_state{name = Name, args = Args, workers = WrkL, monitors = Mon, mirror = Mir} = State,
+  #sherlock_pool_holder_state{args = Args, workers = WrkL, monitors = Mon, mirror = Mir} = State,
   {M, F, A} = maps:get(mfa, Args),
   try
     {MRef, WorkerPid} = do_init_start(M, F, A),
