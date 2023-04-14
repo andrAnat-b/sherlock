@@ -51,7 +51,7 @@ checkin(Name, {WorkerPid, Ref}) when is_pid(WorkerPid) ->
 
 transaction(Name, Fun) when is_function(Fun, 1) ->
   case checkout(Name) of
-    {ok, Pid, Refer} = Refer ->
+    {ok, Pid, Refer} ->
       Result = Fun(Pid),
       checkin(Name, {pid, Refer}),
       Result;
