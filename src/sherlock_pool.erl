@@ -18,23 +18,24 @@
 -export([occup/2]).
 -export([free/1]).
 -export([free/2]).
+-export([get_occupied/1]).
 
 -export([update_csize/2]).
 
 -export([push_worker/2]).
 
--record(?MODULE,{
-  name,
-  c_size = 0,
-  free = 0,
-  mx_size = 1,
-  mn_size = 1,
-  qt,
-  q_id = 1,
-  wt,
-  w_id = 1,
+-record(?MODULE, {
+  name           ,
+  c_size = 0     ,
+  occupation = 0 ,
+  mx_size = 1    ,
+  mn_size = 1    ,
+  qt             ,
+  q_id = 1       ,
+  wt             ,
+  w_id = 1       ,
   mfa = {sherlock_simple_worker, start_link,[0]}
-}).
+                 }).
 
 -record(sherlock_job,{
   q_id,
@@ -150,6 +151,7 @@ push_worker(PoolName, WorkerPid) ->
   push_worker(PoolName, WorkerPid, QTab, WTab).
 
 push_worker(PoolName, WorkerPid, QTab, WTab) ->
+  free(PoolName),
   NextId = worker_id_incr(PoolName),
   true = push_wt(WTab, NextId, WorkerPid),
   case take_from_qt(QTab, NextId, WorkerPid) of
@@ -158,14 +160,12 @@ push_worker(PoolName, WorkerPid, QTab, WTab) ->
         {ok, _} ->
           Dest ! Msg;
         gone ->
-          free(PoolName),
           ok
       end;
     retry ->
       take_from_wt(WTab, NextId),
-      push_worker(PoolName, QTab, WTab, WorkerPid);
+      push_worker(PoolName, WorkerPid, QTab, WTab);
     gone ->
-      free(PoolName),
       ok
   end.
 
@@ -173,13 +173,13 @@ push_qt(QTab, NextId, Timeout, WaitingPid, Secret) ->
   ets:insert_new(QTab, #sherlock_job{q_id = NextId, ttl = ttl(Timeout), pid = WaitingPid, ref = Secret}).
 
 push_job_to_queue(PoolName, Timeout) ->
+  occup(PoolName),
   QTab = q_tab(PoolName),
   WTab = w_tab(PoolName),
   WaitingPid = self(),
   Secret = erlang:make_ref(),
   case push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) of
     {ok, _WorkerPid} = Result->
-      occup(PoolName),
       Result;
     wait ->
       wait(Secret, Timeout, PoolName)
@@ -207,7 +207,6 @@ wait(Secret, Timeout, PoolName) ->
   receive
     #sherlock_msg{ref = Secret, workerpid = Worker} ->
       _ = wait(Secret, 0, PoolName),
-      occup(PoolName),
       {ok, Worker}
   after
     Timeout ->
@@ -229,10 +228,13 @@ occup(Name) ->
   occup(Name, 1).
 
 occup(Name, N) ->
-  ets:update_counter(?MODULE, Name, {#?MODULE.free, N*(-1)}).
+  ets:update_counter(?MODULE, Name, {#?MODULE.occupation, N}).
 
 free(Name) ->
   free(Name, 1).
 
 free(Name, N) ->
-  ets:update_counter(?MODULE, Name, {#?MODULE.free, N}).
+  ets:update_counter(?MODULE, Name, {#?MODULE.occupation, N*(-1)}).
+
+get_occupied(Name) ->
+  ets:lookup_element(?MODULE, Name, #?MODULE.occupation).
