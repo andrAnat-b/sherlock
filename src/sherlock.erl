@@ -13,6 +13,7 @@
 -export([transaction/3]).
 
 -export([get_pool_metrics/0]).
+-export([get_pool_info/1]).
 
 -export(['_app_name_'/0]).
 
@@ -23,10 +24,16 @@ start()->
 
 %% API
 start_pool(Name, Opts) ->
-  sherlock_sentry_super_sup:start_child(Name, sherlock_pool:fix_cfg(Opts)).
+  case ?MODULE:get_pool_info(Name) of
+    {error, undefined} ->
+      sherlock_sentry_super_sup:start_child(Name, sherlock_pool:fix_cfg(Opts));
+    _ ->
+      {error, {?MODULE, {pool_already_started, Name}}}
+  end.
 
 stop_pool(Name) ->
-  sherlock_sentry_super_sup:stop_child(Name).
+  sherlock_sentry_super_sup:stop_child(Name),
+  sherlock_pool:destroy(Name).
 
 
 
@@ -75,4 +82,8 @@ transaction(Name, Fun, Timeout) when is_function(Fun, 1) ->
   ?MODULE.
 
 get_pool_metrics() ->
-  erlang:error(not_implemented).
+  Names = sherlock_pool:get_all_poolnames(),
+  [?MODULE:get_pool_info(Name)||Name<-Names].
+
+get_pool_info(Poolname) ->
+  sherlock_pool:get_info(Poolname).
