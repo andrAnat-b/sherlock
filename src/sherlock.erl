@@ -32,8 +32,7 @@ start_pool(Name, Opts) ->
   end.
 
 stop_pool(Name) ->
-  sherlock_sentry_super_sup:stop_child(Name),
-  sherlock_pool:destroy(Name).
+  sherlock_sentry_super_sup:stop_child(Name).
 
 
 

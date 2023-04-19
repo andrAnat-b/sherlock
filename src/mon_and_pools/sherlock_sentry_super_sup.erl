@@ -28,6 +28,7 @@ start_child(Name, Args) ->
 
 stop_child(Name) ->
   supervisor:terminate_child(?SERVER, {sherlock_sentry_pool_sup, Name}),
+  supervisor:delete_child(?SERVER, {sherlock_sentry_pool_sup, Name}),
   sherlock_pool:destroy(Name).
 
 %% @doc Starts the supervisor
