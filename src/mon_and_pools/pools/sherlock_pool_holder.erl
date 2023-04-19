@@ -197,8 +197,9 @@ make_resize({shrink, N}, State = #sherlock_pool_holder_state{name = Name}, Acc) 
       NewWorkerL = [Pid || Pid <- WrkL, Pid /= Worker],
       {Ref, NewMir} = maps:take(Worker, Mir),
       NewMon = maps:without([Ref], Mon),
+      catch erlang:unlink(Worker),
       erlang:demonitor(Ref, [flush]),
-      erlang:exit(Worker, kill),
+      erlang:exit(Worker, stop),
       NewState = State#sherlock_pool_holder_state{name = Name, monitors = NewMon, mirror = NewMir, workers = NewWorkerL},
       make_resize({shrink, N-1}, NewState, Acc);
     _ ->
