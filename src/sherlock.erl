@@ -41,9 +41,8 @@ checkout(Name) ->
 
 checkout(Name, Timeout) ->
   case sherlock_pool:push_job_to_queue(Name, Timeout) of
-    {ok, WorkerPid} ->
-      Ref = sherlock_mon_wrkr:monitor_me(Name, WorkerPid),
-      {ok, WorkerPid, Ref};
+    {ok, _WorkerPid, _MonRef} = Ok ->
+      Ok;
     Reason ->
       {error, {Name, Reason}}
   end.
@@ -82,7 +81,7 @@ transaction(Name, Fun, Timeout) when is_function(Fun, 1) ->
 
 get_pool_metrics() ->
   Names = sherlock_pool:get_all_poolnames(),
-  [?MODULE:get_pool_info(Name)||Name<-Names].
+  [{Name, ?MODULE:get_pool_info(Name)}||Name<-Names].
 
 get_pool_info(Poolname) ->
   sherlock_pool:get_info(Poolname).
