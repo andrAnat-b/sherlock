@@ -78,6 +78,8 @@ handle_call(_Request, _From, State = #sherlock_mon_wrkr_state{}) ->
   {noreply, NewState :: #sherlock_mon_wrkr_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #sherlock_mon_wrkr_state{}}).
 handle_cast(#demonitor{caller = Caller, object = WorkerPid, ref = Ref}, State = #sherlock_mon_wrkr_state{monitors = M}) ->
+  lager:debug("Monitors ~p",[M]),
+  lager:debug("Caller ~p WorkerPid ~p Ref ~p",[Caller, WorkerPid, Ref]),
   {WorkerPid, NewM} = maps:take({Caller, Ref}, M),
   erlang:demonitor(Ref, [flush]),
   case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid, nocall) of
