@@ -193,7 +193,7 @@ push_job_to_queue(PoolName, Timeout) ->
   WaitingPid = self(),
   Secret = erlang:make_ref(),
   case push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) of
-    {ok, _WorkerPid} = Result->
+    {ok, _WorkerPid, _MonRef} = Result->
       Result;
     wait ->
       wait(Secret, Timeout+5)
@@ -203,12 +203,12 @@ push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
   NextId = queue_id_incr(PoolName),
   true = push_qt(QTab, NextId, Timeout, WaitingPid, Secret),
   case take_from_wt(WTab, NextId) of
-    {ok, WorkerPid} = Result ->
+    {ok, WorkerPid} ->
       TakeQt = take_from_qt(QTab, NextId, WorkerPid),
       case TakeQt of
         {ok, _, _} ->
-          sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
-          Result;
+          MonRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
+          {ok, WorkerPid, MonRef};
         retry ->
           wait;
         gone ->
