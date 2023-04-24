@@ -129,7 +129,7 @@ take_from_qt(Qtab, Id, WorkerPid) ->
     [#sherlock_job{ref = R, pid = Pid}] ->
       case is_process_alive(Pid) of
         true ->
-          {ok, Pid, #sherlock_msg{ref = R, workerpid = WorkerPid, monref = MRef}};
+          {ok, Pid, #sherlock_msg{ref = R, workerpid = WorkerPid}};
         false ->
           retry
       end;
