@@ -34,8 +34,8 @@ start_link(Name, Args) ->
         [ChildSpec :: supervisor:child_spec()]}}
   | ignore | {error, Reason :: term()}).
 init({Name, Args}) ->
-  MaxRestarts = 1,
-  MaxSecondsBetweenRestarts = 1,
+  MaxRestarts = 10,
+  MaxSecondsBetweenRestarts = 60,
   SupFlags = #{strategy => rest_for_one,
                intensity => MaxRestarts,
                period => MaxSecondsBetweenRestarts},
