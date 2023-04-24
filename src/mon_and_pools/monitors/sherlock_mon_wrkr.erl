@@ -82,8 +82,8 @@ handle_cast(#demonitor{caller = Caller, object = WorkerPid, ref = Ref}, State = 
   erlang:demonitor(Ref, [flush]),
   case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid) of
     ok -> {noreply, State#sherlock_mon_wrkr_state{monitors = NewM}};
-    NewMref ->
-      {noreply, State#sherlock_mon_wrkr_state{monitors = maps:merge(M, #{{Caller, NewMref} => WorkerPid})}}
+    {NewCaller, NewMref} ->
+      {noreply, State#sherlock_mon_wrkr_state{monitors = maps:merge(M, #{{NewCaller, NewMref} => WorkerPid})}}
   end;
 handle_cast(_Request, State = #sherlock_mon_wrkr_state{}) ->
   {noreply, State}.
@@ -98,8 +98,8 @@ handle_info(#'DOWN'{ref = MonitorRef, type = process, id = Caller, reason = _}, 
   {WorkerPid, NewM} = maps:take({Caller, MonitorRef}, M),
   case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid) of
     ok -> {noreply, State#sherlock_mon_wrkr_state{monitors = NewM}};
-    NewMref ->
-      {noreply, State#sherlock_mon_wrkr_state{monitors = maps:merge(M, #{{Caller, NewMref} => WorkerPid})}}
+    {NewCaller, NewMref} ->
+      {noreply, State#sherlock_mon_wrkr_state{monitors = maps:merge(M, #{{NewCaller, NewMref} => WorkerPid})}}
   end;
 handle_info(_Info, State = #sherlock_mon_wrkr_state{}) ->
   {noreply, State}.

@@ -166,7 +166,7 @@ push_worker(PoolName, WorkerPid, QTab, WTab) ->
       case take_from_wt(WTab, NextId) of
         {ok, _} ->
           Dest ! Msg,
-          Msg#sherlock_msg.monref;
+          {Dest, Msg#sherlock_msg.monref};
         gone ->
           ok
       end;
