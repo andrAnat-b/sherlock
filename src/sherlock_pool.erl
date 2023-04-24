@@ -170,8 +170,9 @@ push_worker(PoolName, WorkerPid, QTab, WTab, Type) ->
             _ ->
               erlang:monitor(process, Dest)
           end,
-          Dest ! Msg#sherlock_msg{monref = MonitorRef},
-          {Dest, Msg#sherlock_msg.monref};
+          NewMSG = Msg#sherlock_msg{monref = MonitorRef},
+          Dest ! NewMSG,
+          {Dest, NewMSG#sherlock_msg.monref};
         gone ->
           ok
       end;
