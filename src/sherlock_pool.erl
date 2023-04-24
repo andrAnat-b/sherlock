@@ -120,7 +120,7 @@ get_wid(PoolName) ->
 get_qid(PoolName) ->
   ets:lookup_element(?MODULE, PoolName, #?MODULE.q_id).
 
-take_from_qt(PoolName, Qtab, Id, WorkerPid) ->
+take_from_qt(Qtab, Id, WorkerPid) ->
   Cts = cts(),
   TakeQt = ets:take(Qtab, Id),
   case TakeQt of
@@ -129,7 +129,6 @@ take_from_qt(PoolName, Qtab, Id, WorkerPid) ->
     [#sherlock_job{ref = R, pid = Pid}] ->
       case is_process_alive(Pid) of
         true ->
-          MRef = erlang:monitor(process, Pid),
           {ok, Pid, #sherlock_msg{ref = R, workerpid = WorkerPid, monref = MRef}};
         false ->
           retry
@@ -161,11 +160,12 @@ push_worker(PoolName, WorkerPid, QTab, WTab) ->
   free(PoolName),
   NextId = worker_id_incr(PoolName),
   true = push_wt(WTab, NextId, WorkerPid),
-  case take_from_qt(PoolName, QTab, NextId, WorkerPid) of
+  case take_from_qt(QTab, NextId, WorkerPid) of
     {ok, Dest, Msg} ->
       case take_from_wt(WTab, NextId) of
         {ok, _} ->
-          Dest ! Msg,
+          MonitorRef = erlang:monitor(process, Dest),
+          Dest ! Msg#sherlock_msg{monref = MonitorRef},
           {Dest, Msg#sherlock_msg.monref};
         gone ->
           ok
@@ -198,9 +198,10 @@ push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
   true = push_qt(QTab, NextId, Timeout, WaitingPid, Secret),
   case take_from_wt(WTab, NextId) of
     {ok, WorkerPid} = Result ->
-      TakeQt = take_from_qt(PoolName, QTab, NextId, WorkerPid),
+      TakeQt = take_from_qt(QTab, NextId, WorkerPid),
       case TakeQt of
         {ok, _, _} ->
+          sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
           Result;
         retry ->
           wait;
@@ -263,7 +264,7 @@ replace_worker(PoolName, OldWorker, NewWorker) ->
         [] -> ok;
         [JobID] ->
           QTab = get_wid(PoolName),
-          TakeQt = take_from_qt(PoolName, QTab, JobID, NewWorker),
+          TakeQt = take_from_qt(QTab, JobID, NewWorker),
           case TakeQt of
             {ok, WaitingPid, Message} ->
              case erlang:is_process_alive(WaitingPid) of
