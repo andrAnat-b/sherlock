@@ -129,7 +129,7 @@ take_from_qt(PoolName, Qtab, Id, WorkerPid) ->
     [#sherlock_job{ref = R, pid = Pid}] ->
       case is_process_alive(Pid) of
         true ->
-          MRef = sherlock_mon_wrkr:monitor_it(PoolName, Pid, WorkerPid),
+          MRef = erlang:monitor(process, Pid),
           {ok, Pid, #sherlock_msg{ref = R, workerpid = WorkerPid, monref = MRef}};
         false ->
           retry
@@ -165,7 +165,8 @@ push_worker(PoolName, WorkerPid, QTab, WTab) ->
     {ok, Dest, Msg} ->
       case take_from_wt(WTab, NextId) of
         {ok, _} ->
-          Dest ! Msg;
+          Dest ! Msg,
+          Msg#sherlock_msg.monref;
         gone ->
           ok
       end;

@@ -27,7 +27,7 @@ monitor_it(Name, Me, WorkerPid) ->
   Spread = sherlock_pool:mx_size(Name),
   Id = erlang:phash([Me, WorkerPid], Spread) -1,
   MonitPid = sherlock_registry:whereis_name({?MODULE, Name, Id}),
-  gen_server:call(MonitPid, #monitor{caller = Me, object = WorkerPid}, 60000).
+  gen_server:call(MonitPid, #monitor{caller = Me, object = WorkerPid}).
 
 demonitor_me(Name, WorkerPid, Ref) ->
   Me = self(),
@@ -80,8 +80,11 @@ handle_call(_Request, _From, State = #sherlock_mon_wrkr_state{}) ->
 handle_cast(#demonitor{caller = Caller, object = WorkerPid, ref = Ref}, State = #sherlock_mon_wrkr_state{monitors = M}) ->
   {WorkerPid, NewM} = maps:take({Caller, Ref}, M),
   erlang:demonitor(Ref, [flush]),
-  sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid),
-  {noreply, State#sherlock_mon_wrkr_state{monitors = NewM}};
+  case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid) of
+    ok -> {noreply, State#sherlock_mon_wrkr_state{monitors = NewM}};
+    NewMref ->
+      {noreply, State#sherlock_mon_wrkr_state{monitors = maps:merge(M, #{{Caller, NewMref} => WorkerPid})}}
+  end;
 handle_cast(_Request, State = #sherlock_mon_wrkr_state{}) ->
   {noreply, State}.
 
@@ -93,8 +96,11 @@ handle_cast(_Request, State = #sherlock_mon_wrkr_state{}) ->
   {stop, Reason :: term(), NewState :: #sherlock_mon_wrkr_state{}}).
 handle_info(#'DOWN'{ref = MonitorRef, type = process, id = Caller, reason = _}, State = #sherlock_mon_wrkr_state{monitors = M}) ->
   {WorkerPid, NewM} = maps:take({Caller, MonitorRef}, M),
-  sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid),
-  {noreply, State#sherlock_mon_wrkr_state{monitors = NewM}};
+  case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid) of
+    ok -> {noreply, State#sherlock_mon_wrkr_state{monitors = NewM}};
+    NewMref ->
+      {noreply, State#sherlock_mon_wrkr_state{monitors = maps:merge(M, #{{Caller, NewMref} => WorkerPid})}}
+  end;
 handle_info(_Info, State = #sherlock_mon_wrkr_state{}) ->
   {noreply, State}.
 
