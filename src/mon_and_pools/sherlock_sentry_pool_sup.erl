@@ -54,7 +54,7 @@ init({Name, Args}) ->
              type => worker,
              modules => [sherlock_pool_holder]},
 
-  {ok, {SupFlags, [Monitors, Workers]}}.
+  {ok, {SupFlags, [Workers, Monitors]}}.
 
 %%%===================================================================
 %%% Internal functions
