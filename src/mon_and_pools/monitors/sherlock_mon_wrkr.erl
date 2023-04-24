@@ -25,14 +25,14 @@ monitor_me(Name, WorkerPid) ->
   monitor_it(Name, self(), WorkerPid).
 monitor_it(Name, Me, WorkerPid) ->
   Spread = sherlock_pool:mx_size(Name),
-  Id = erlang:phash([Me, WorkerPid], Spread) -1,
+  Id = erlang:phash([WorkerPid], Spread) -1,
   MonitPid = sherlock_registry:whereis_name({?MODULE, Name, Id}),
   gen_server:call(MonitPid, #monitor{caller = Me, object = WorkerPid}).
 
 demonitor_me(Name, WorkerPid, Ref) ->
   Me = self(),
   Spread = sherlock_pool:mx_size(Name),
-  Id = erlang:phash([Me, WorkerPid], Spread) -1,
+  Id = erlang:phash([WorkerPid], Spread) -1,
   MonitPid = sherlock_registry:whereis_name({?MODULE, Name, Id}),
   gen_server:cast(MonitPid, #demonitor{caller = Me, object = WorkerPid, ref = Ref}).
 
