@@ -49,7 +49,7 @@ init({Name, Args}) ->
   process_flag(trap_exit, true),
   sherlock_pool:create(Name, Args),
   WorkersWithRefs = do_start_childs(Args),
-  List = [sherlock_pool:push_worker(Name, WorkerPid) || {_ , WorkerPid} <- WorkersWithRefs],
+  List = [sherlock_pool:push_worker(Name, WorkerPid, call) || {_ , WorkerPid} <- WorkersWithRefs],
   PoolSize = erlang:length(List),
   sherlock_pool:update_csize(Name, PoolSize),
   Monitors = maps:from_list(WorkersWithRefs),
@@ -103,7 +103,7 @@ handle_info(#resize{secret = S}, State = #sherlock_pool_holder_state{secret = S,
   sherlock_pool:update_csize(Name, ActualSizePrev),
   Direction = pool_resize_direction(Name, ActualSizePrev),
   {AdditionalWorkersPid, NewState} = make_resize(Direction, State, []),
-  [sherlock_pool:push_worker(Name, Pid) || Pid <- AdditionalWorkersPid],
+  [sherlock_pool:push_worker(Name, Pid, call) || Pid <- AdditionalWorkersPid],
   resize(S, MSTime),
   {noreply, NewState};
 handle_info(#'DOWN'{ref = MonRef, id = OldWorker}, State = #sherlock_pool_holder_state{name = Name, workers = Work}) ->

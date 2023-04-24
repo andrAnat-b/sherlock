@@ -25,7 +25,7 @@
 
 -export([update_csize/2]).
 
--export([push_worker/2]).
+-export([push_worker/3]).
 
 -export([get_info/1]).
 
@@ -151,12 +151,12 @@ push_wt(WTab, Id, WorkerPid) ->
 
 
 
-push_worker(PoolName, WorkerPid) ->
+push_worker(PoolName, WorkerPid, Type) ->
   QTab = q_tab(PoolName),
   WTab = w_tab(PoolName),
-  push_worker(PoolName, WorkerPid, QTab, WTab).
+  push_worker(PoolName, WorkerPid, QTab, WTab, Type).
 
-push_worker(PoolName, WorkerPid, QTab, WTab) ->
+push_worker(PoolName, WorkerPid, QTab, WTab, Type) ->
   free(PoolName),
   NextId = worker_id_incr(PoolName),
   true = push_wt(WTab, NextId, WorkerPid),
@@ -164,7 +164,12 @@ push_worker(PoolName, WorkerPid, QTab, WTab) ->
     {ok, Dest, Msg} ->
       case take_from_wt(WTab, NextId) of
         {ok, _} ->
-          MonitorRef = erlang:monitor(process, Dest),
+          MonitorRef = case Type of
+            call ->
+              sherlock_mon_wrkr:monitor_it(PoolName, Dest, WorkerPid);
+            _ ->
+              erlang:monitor(process, Dest)
+          end,
           Dest ! Msg#sherlock_msg{monref = MonitorRef},
           {Dest, Msg#sherlock_msg.monref};
         gone ->
@@ -172,7 +177,7 @@ push_worker(PoolName, WorkerPid, QTab, WTab) ->
       end;
     retry ->
       take_from_wt(WTab, NextId),
-      push_worker(PoolName, WorkerPid, QTab, WTab);
+      push_worker(PoolName, WorkerPid, QTab, WTab, Type);
     gone ->
       ok
   end.
@@ -271,12 +276,12 @@ replace_worker(PoolName, OldWorker, NewWorker) ->
                true ->
                  WaitingPid ! Message;
                _ ->
-                 push_worker(PoolName, NewWorker)
+                 push_worker(PoolName, NewWorker, call)
              end;
             retry ->
-              push_worker(PoolName, NewWorker);
+              push_worker(PoolName, NewWorker, call);
             gone ->
-              push_worker(PoolName, NewWorker)
+              push_worker(PoolName, NewWorker, call)
           end
       end;
     true ->
@@ -285,7 +290,7 @@ replace_worker(PoolName, OldWorker, NewWorker) ->
                                         true
                                     end),
       ets:select_delete(WTab, MatchSpecDelete),
-      push_worker(PoolName, NewWorker)
+      push_worker(PoolName, NewWorker, call)
   end.
 
 get_info(Poolname) ->
