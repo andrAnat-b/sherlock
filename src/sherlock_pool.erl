@@ -12,6 +12,8 @@
 -export([create/2]).
 -export([destroy/1]).
 
+-export([m_tab/1]).
+
 -export([mx_size/1]).
 -export([mn_size/1]).
 -export([get_qid/1]).
@@ -35,6 +37,7 @@
   name           ,
   c_size = 0     ,
   occupation = 0 ,
+  mt             ,
   mx_size = 1    ,
   mn_size = 1    ,
   qt             ,
@@ -76,6 +79,10 @@ init_qt() ->
   Options = [set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #sherlock_job.q_id}],
   ets:new(?MODULE, Options).
 
+init_mt() ->
+  Options = [set, public, {read_concurrency, true}, {write_concurrency, true}],
+  ets:new(?MODULE, Options).
+
 create(PoolName, PoolArgs) ->
   Record = #?MODULE{},
   MFA = maps:get(mfa, PoolArgs),
@@ -86,6 +93,7 @@ create(PoolName, PoolArgs) ->
     mfa = MFA,
     wt = init_wt(),
     qt = init_qt(),
+    mt = init_mt(),
     mx_size = Max,
     mn_size = Min
   },
@@ -110,6 +118,8 @@ w_tab(PoolName) ->
   ets:lookup_element(?MODULE, PoolName, #?MODULE.wt).
 q_tab(PoolName) ->
   ets:lookup_element(?MODULE, PoolName, #?MODULE.qt).
+m_tab(PoolName) ->
+  ets:lookup_element(?MODULE, PoolName, #?MODULE.mt).
 
 update_csize(PoolName, Csize) ->
   ets:update_element(?MODULE, PoolName, {#?MODULE.c_size, Csize}).

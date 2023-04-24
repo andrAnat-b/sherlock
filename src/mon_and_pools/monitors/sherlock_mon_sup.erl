@@ -40,7 +40,7 @@ init({Name, Args}) ->
                intensity => MaxRestarts,
                period => MaxSecondsBetweenRestarts},
 
-  TabRef = ets:new(?MODULE, [set, public, {read_concurrency, true}, {write_concurrency, true}]),
+  TabRef = sherlock_pool:m_tab(Name),
 
   MaxSize = maps:get(max_size, Args),
 
