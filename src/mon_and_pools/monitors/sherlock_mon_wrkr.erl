@@ -81,11 +81,11 @@ handle_cast(#demonitor{caller = Caller, object = WorkerPid, ref = Ref}, State = 
   MonitorProc = self(),
   [{{Caller, MRef}, WorkerPid, MonitorProc}] = ets:take(M, {Caller, Ref}),
   erlang:demonitor(MRef, [flush]),
-%%  case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid, nocall) of
-%%    ok -> ok;
-%%    {NewCaller, NewMref} ->
-%%      ets:insert(M, {{NewCaller, NewMref}, WorkerPid, self()})
-%%  end,
+  case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid, nocall) of
+    ok -> ok;
+    {NewCaller, NewMref} ->
+      ets:insert(M, {{NewCaller, NewMref}, WorkerPid, self()})
+  end,
   {noreply, State};
 handle_cast(_Request, State = #sherlock_mon_wrkr_state{}) ->
   {noreply, State}.

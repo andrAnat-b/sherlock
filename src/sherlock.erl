@@ -50,7 +50,6 @@ checkout(Name, Timeout) ->
 
 
 checkin(Name, {WorkerPid, Ref}) when is_pid(WorkerPid) ->
-  sherlock_pool:push_worker(Name, WorkerPid, call),
   sherlock_mon_wrkr:demonitor_me(Name, WorkerPid, Ref).
 
 

@@ -106,7 +106,8 @@ handle_info(#resize{secret = S}, State = #sherlock_pool_holder_state{secret = S,
   [sherlock_pool:push_worker(Name, Pid, call) || Pid <- AdditionalWorkersPid],
   resize(S, MSTime),
   {noreply, NewState};
-handle_info(#'DOWN'{ref = MonRef, id = OldWorker}, State = #sherlock_pool_holder_state{name = Name, workers = Work}) ->
+handle_info(#'DOWN'{ref = MonRef, id = OldWorker, reason = Reason}, State = #sherlock_pool_holder_state{name = Name, workers = Work}) ->
+  lager:error("[sherlock.pool_worker] DOWN with reason = ~p",[Reason]),
   sherlock_pool:occup(Name),
   #sherlock_pool_holder_state{mirror = Mir, monitors = Mon} = State,
   {MonRef, NewMir} = maps:take(OldWorker, Mir),
