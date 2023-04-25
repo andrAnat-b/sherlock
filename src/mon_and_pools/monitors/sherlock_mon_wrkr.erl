@@ -69,6 +69,7 @@ handle_call(#monitor{caller = Caller, object = WorkerPid}, From, State = #sherlo
   gen_server:reply(From , MRef),
   {noreply, State};
 handle_call(_Request, _From, State = #sherlock_mon_wrkr_state{}) ->
+  lager:error("~p ~p Got UNHANDLED CALL message ~p", [self(), ?MODULE, _Request]),
   {reply, ok, State}.
 
 %% @private
@@ -88,6 +89,7 @@ handle_cast(#demonitor{caller = Caller, object = WorkerPid, ref = Ref}, State = 
   end,
   {noreply, State};
 handle_cast(_Request, State = #sherlock_mon_wrkr_state{}) ->
+  lager:error("~p ~p Got UNHANDLED CAST message ~p", [self(), ?MODULE, _Request]),
   {noreply, State}.
 
 %% @private
@@ -106,6 +108,7 @@ handle_info(#'DOWN'{ref = MRef, type = process, id = Caller, reason = _}, State 
   end,
   {noreply, State};
 handle_info(_Info, State = #sherlock_mon_wrkr_state{}) ->
+  lager:error("~p ~p Got UNHANDLED INFO message ~p", [self(), ?MODULE, _Info]),
   {noreply, State}.
 
 %% @private
