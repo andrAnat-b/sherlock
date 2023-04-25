@@ -65,11 +65,10 @@ init({Name, _Id, TabRef}) ->
                    {stop, Reason :: term(), NewState :: #sherlock_mon_wrkr_state{}}).
 handle_call(#monitor{caller = Caller, object = WorkerPid}, From, State = #sherlock_mon_wrkr_state{monitors = M}) ->
   MRef = erlang:monitor(process, Caller),
-  ets:insert(M, {{Caller, MRef}, WorkerPid, self()}),
   gen_server:reply(From , MRef),
+  ets:insert(M, {{Caller, MRef}, WorkerPid, self()}),
   {noreply, State};
 handle_call(_Request, _From, State = #sherlock_mon_wrkr_state{}) ->
-  lager:error("~p ~p Got UNHANDLED CALL message ~p", [self(), ?MODULE, _Request]),
   {reply, ok, State}.
 
 %% @private
@@ -82,14 +81,13 @@ handle_cast(#demonitor{caller = Caller, object = WorkerPid, ref = Ref}, State = 
   MonitorProc = self(),
   [{{Caller, MRef}, WorkerPid, MonitorProc}] = ets:take(M, {Caller, Ref}),
   erlang:demonitor(MRef, [flush]),
-%%  case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid, nocall) of
-%%    ok -> ok;
-%%    {NewCaller, NewMref} ->
-%%      ets:insert(M, {{NewCaller, NewMref}, WorkerPid, self()})
-%%  end,
+  case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid, nocall) of
+    ok -> ok;
+    {NewCaller, NewMref} ->
+      ets:insert(M, {{NewCaller, NewMref}, WorkerPid, self()})
+  end,
   {noreply, State};
 handle_cast(_Request, State = #sherlock_mon_wrkr_state{}) ->
-  lager:error("~p ~p Got UNHANDLED CAST message ~p", [self(), ?MODULE, _Request]),
   {noreply, State}.
 
 %% @private
@@ -108,7 +106,6 @@ handle_info(#'DOWN'{ref = MRef, type = process, id = Caller, reason = _}, State 
   end,
   {noreply, State};
 handle_info(_Info, State = #sherlock_mon_wrkr_state{}) ->
-  lager:error("~p ~p Got UNHANDLED INFO message ~p", [self(), ?MODULE, _Info]),
   {noreply, State}.
 
 %% @private
