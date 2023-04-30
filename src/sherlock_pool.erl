@@ -177,7 +177,6 @@ push_worker(PoolName, WorkerPid, QTab, WTab, Type) ->
       erlang:yield(),
       case take_from_wt(WTab, NextId) of
         {ok, _} ->
-          erlang:yield(),
           MonitorRef = case Type of
             call ->
               sherlock_mon_wrkr:monitor_it(PoolName, Dest, WorkerPid);
@@ -188,12 +187,11 @@ push_worker(PoolName, WorkerPid, QTab, WTab, Type) ->
           Dest ! NewMSG,
           {Dest, NewMSG#sherlock_msg.monref};
         gone ->
-          erlang:yield(),
           ok
       end;
     retry ->
-      erlang:yield(),
       take_from_wt(WTab, NextId),
+      erlang:yield(),
       push_worker(PoolName, WorkerPid, QTab, WTab, Type);
     gone ->
       erlang:yield(),
@@ -211,10 +209,8 @@ push_job_to_queue(PoolName, Timeout) ->
   Secret = erlang:make_ref(),
   case push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) of
     {ok, _WorkerPid, _MonRef} = Result->
-      erlang:yield(),
       Result;
     {wait, NextId} ->
-      erlang:yield(),
       Fun = fun () ->
         ets:delete(QTab, NextId),
         free(PoolName)

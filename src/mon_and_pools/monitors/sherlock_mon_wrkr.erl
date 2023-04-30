@@ -65,8 +65,8 @@ init({Name, _Id, TabRef}) ->
                    {stop, Reason :: term(), NewState :: #sherlock_mon_wrkr_state{}}).
 handle_call(#monitor{caller = Caller, object = WorkerPid}, From, State = #sherlock_mon_wrkr_state{monitors = M}) ->
   MRef = erlang:monitor(process, Caller),
-  gen_server:reply(From , MRef),
   ets:insert(M, {{Caller, MRef}, WorkerPid, self()}),
+  gen_server:reply(From , MRef),
   {noreply, State};
 handle_call(_Request, _From, State = #sherlock_mon_wrkr_state{}) ->
   {reply, ok, State}.
