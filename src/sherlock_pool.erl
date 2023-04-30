@@ -246,7 +246,7 @@ push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
   case take_from_wt(WTab, NextId) of
     {ok, WorkerPid} ->
       MonRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
-      {ok, WorkerPid, NextId, MonRef};
+      {ok, WorkerPid, MonRef};
     gone ->
       true = push_qt(QTab, NextId, Timeout, WaitingPid, Secret),
       {wait, NextId}
