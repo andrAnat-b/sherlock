@@ -59,7 +59,7 @@
   pid
 }).
 
--record(sherlock_msg, {ref, workerpid, monref}).
+-record(sherlock_msg, {qid, ref, workerpid, monref}).
 
 ttl(infinity = I) -> I;
 ttl(Int) when is_integer(Int) and (Int >= 0) -> (erlang:system_time(millisecond) + Int) - 5.
@@ -130,6 +130,8 @@ get_wid(PoolName) ->
 get_qid(PoolName) ->
   ets:lookup_element(?MODULE, PoolName, #?MODULE.q_id).
 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 take_from_qt(Qtab, Id, WorkerPid) ->
   Cts = cts(),
   TakeQt = ets:take(Qtab, Id),
@@ -139,7 +141,7 @@ take_from_qt(Qtab, Id, WorkerPid) ->
     [#sherlock_job{ref = R, pid = Pid}] ->
       case is_process_alive(Pid) of
         true ->
-          {ok, Pid, #sherlock_msg{ref = R, workerpid = WorkerPid}};
+          {ok, Pid, #sherlock_msg{qid = Id, ref = R, workerpid = WorkerPid}};
         false ->
           retry
       end;
@@ -160,7 +162,6 @@ push_wt(WTab, Id, WorkerPid) ->
   ets:insert_new(WTab, #sherlock_wrk{w_id = Id, pid = WorkerPid}).
 
 
-
 push_worker(PoolName, WorkerPid, Type) ->
   QTab = q_tab(PoolName),
   WTab = w_tab(PoolName),
@@ -170,26 +171,32 @@ push_worker(PoolName, WorkerPid, QTab, WTab, Type) ->
   free(PoolName),
   NextId = worker_id_incr(PoolName),
   true = push_wt(WTab, NextId, WorkerPid),
+  erlang:yield(),
   case take_from_qt(QTab, NextId, WorkerPid) of
     {ok, Dest, Msg} ->
+      erlang:yield(),
       case take_from_wt(WTab, NextId) of
         {ok, _} ->
-          MonitorRef = case Type of
+          case Type of
             call ->
-              sherlock_mon_wrkr:monitor_it(PoolName, Dest, WorkerPid);
+              MonitorRef = sherlock_mon_wrkr:monitor_it(PoolName, Dest, WorkerPid),
+              NewMSG = Msg#sherlock_msg{monref = MonitorRef},
+              Dest ! NewMSG,
+              {Dest, NewMSG#sherlock_msg.monref, NewMSG};
             _ ->
-              erlang:monitor(process, Dest)
-          end,
-          NewMSG = Msg#sherlock_msg{monref = MonitorRef},
-          Dest ! NewMSG,
-          {Dest, NewMSG#sherlock_msg.monref};
+              MonitorRef = erlang:monitor(process, Dest),
+              NewMSG = Msg#sherlock_msg{monref = MonitorRef},
+              {Dest, NewMSG#sherlock_msg.monref, NewMSG}
+          end;
         gone ->
           ok
       end;
     retry ->
       take_from_wt(WTab, NextId),
+      erlang:yield(),
       push_worker(PoolName, WorkerPid, QTab, WTab, Type);
     gone ->
+      erlang:yield(),
       ok
   end.
 
@@ -205,38 +212,56 @@ push_job_to_queue(PoolName, Timeout) ->
   case push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) of
     {ok, _WorkerPid, _MonRef} = Result->
       Result;
-    wait ->
-      wait(Secret, Timeout+5)
+    {wait, NextId} ->
+      Fun = fun () ->
+        ets:delete(QTab, NextId),
+        free(PoolName)
+      end,
+      wait(Secret, Timeout+5, Fun)
   end.
+
+%%push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
+%%  NextId = queue_id_incr(PoolName),
+%%  true = push_qt(QTab, NextId, Timeout, WaitingPid, Secret), %% do it after try obtain worker
+%%  case take_from_wt(WTab, NextId) of
+%%    {ok, WorkerPid} ->
+%%      TakeQt = take_from_qt(QTab, NextId, WorkerPid),
+%%      case TakeQt of
+%%        {ok, _, _} ->
+%%          MonRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
+%%          {ok, WorkerPid, MonRef};
+%%        retry ->
+%%          wait;
+%%        gone ->
+%%          wait
+%%      end;
+%%    gone ->
+%%      wait
+%%  end.
 
 push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
   NextId = queue_id_incr(PoolName),
-  true = push_qt(QTab, NextId, Timeout, WaitingPid, Secret),
   case take_from_wt(WTab, NextId) of
     {ok, WorkerPid} ->
-      TakeQt = take_from_qt(QTab, NextId, WorkerPid),
-      case TakeQt of
-        {ok, _, _} ->
-          MonRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
-          {ok, WorkerPid, MonRef};
-        retry ->
-          wait;
-        gone ->
-          wait
-      end;
+      MonRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
+      {ok, WorkerPid, MonRef};
     gone ->
-      wait
+      true = push_qt(QTab, NextId, Timeout, WaitingPid, Secret),
+      {wait, NextId}
   end.
 
-wait(Secret, Timeout) ->
+wait(Secret, Timeout, Fun) ->
   receive
     #sherlock_msg{ref = Secret, workerpid = Worker, monref = MonRef} ->
       {ok, Worker, MonRef}
   after
     Timeout ->
+      Fun(),
       {timeout, Timeout}
   end.
 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 fix_cfg(Opts) ->
   D = #?MODULE{},
   MFA = maps:get(mfa, Opts, D#?MODULE.mfa),

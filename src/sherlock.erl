@@ -49,8 +49,8 @@ checkout(Name, Timeout) ->
 
 
 
-checkin(Name, {WorkerPid, Ref}) when is_pid(WorkerPid) ->
-  sherlock_mon_wrkr:demonitor_me(Name, WorkerPid, Ref).
+checkin(PoolName, {WorkerPid, Ref}) when is_pid(WorkerPid) ->
+  sherlock_mon_wrkr:demonitor_me(PoolName, WorkerPid, Ref).
 
 
 
