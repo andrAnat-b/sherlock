@@ -177,15 +177,17 @@ push_worker(PoolName, WorkerPid, QTab, WTab, Type) ->
       erlang:yield(),
       case take_from_wt(WTab, NextId) of
         {ok, _} ->
-          MonitorRef = case Type of
+          case Type of
             call ->
-              sherlock_mon_wrkr:monitor_it(PoolName, Dest, WorkerPid);
+              MonitorRef = sherlock_mon_wrkr:monitor_it(PoolName, Dest, WorkerPid),
+              NewMSG = Msg#sherlock_msg{monref = MonitorRef},
+              Dest ! NewMSG,
+              {Dest, NewMSG#sherlock_msg.monref, NewMSG};
             _ ->
-              erlang:monitor(process, Dest)
-          end,
-          NewMSG = Msg#sherlock_msg{monref = MonitorRef},
-          Dest ! NewMSG,
-          {Dest, NewMSG#sherlock_msg.monref};
+              MonitorRef = erlang:monitor(process, Dest),
+              NewMSG = Msg#sherlock_msg{monref = MonitorRef},
+              {Dest, NewMSG#sherlock_msg.monref, NewMSG}
+          end;
         gone ->
           ok
       end;
