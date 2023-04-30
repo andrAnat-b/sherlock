@@ -32,7 +32,7 @@ monitor_it(Name, Me, WorkerPid) ->
 demonitor_me(Name, WorkerPid, Ref) ->
   Caller = self(),
   MTab = sherlock_pool:m_tab(Name),
-  [{{Caller, Ref}, WorkerPid, MonitPid}] = ets:lookup(MTab, {Caller, Ref}),
+  [{{Caller, Ref}, WorkerPid, MonitPid}] = ets:lookup(MTab, {Caller, Ref}),  %% @todo rewrite to lookup element
   gen_server:cast(MonitPid, #demonitor{caller = Caller, object = WorkerPid, ref = Ref}).
 
 %% @doc Spawns the server and registers the local name (unique)
@@ -84,7 +84,7 @@ handle_cast(#demonitor{caller = Caller, object = WorkerPid, ref = Ref}, State = 
   case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid, nocall) of
     ok -> ok;
     {NewCaller, NewMref} ->
-      ets:insert(M, {{NewCaller, NewMref}, WorkerPid, self()})
+      ets:insert(M, {{NewCaller, NewMref}, WorkerPid, MonitorProc})
   end,
   {noreply, State};
 handle_cast(_Request, State = #sherlock_mon_wrkr_state{}) ->
@@ -102,7 +102,7 @@ handle_info(#'DOWN'{ref = MRef, type = process, id = Caller, reason = _}, State 
   case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid, nocall) of
     ok -> ok;
     {NewCaller, NewMref} ->
-      ets:insert(M, {{NewCaller, NewMref}, WorkerPid, self()})
+      ets:insert(M, {{NewCaller, NewMref}, WorkerPid, MonitorProc})
   end,
   {noreply, State};
 handle_info(_Info, State = #sherlock_mon_wrkr_state{}) ->

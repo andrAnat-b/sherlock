@@ -107,7 +107,7 @@ handle_info(#resize{secret = S}, State = #sherlock_pool_holder_state{secret = S,
   resize(S, MSTime),
   {noreply, NewState};
 handle_info(#'DOWN'{ref = MonRef, id = OldWorker, reason = Reason}, State = #sherlock_pool_holder_state{name = Name, workers = Work}) ->
-  lager:error("[sherlock.pool_worker] DOWN with reason = ~p",[Reason]),
+  logger:error("Worker from (~p) fails with reason ~p", [Name, Reason]),
   sherlock_pool:occup(Name),
   #sherlock_pool_holder_state{mirror = Mir, monitors = Mon} = State,
   {MonRef, NewMir} = maps:take(OldWorker, Mir),
@@ -153,6 +153,7 @@ do_init_start(M, F, A) ->
     {ok, Pid} when is_pid(Pid) -> {erlang:monitor(process, Pid), Pid};
     {ok, Pid, _Extra} when is_pid(Pid) -> {erlang:monitor(process, Pid), Pid};
     _Reason ->
+      logger:error("Initialization fails with reason ~p",[_Reason]),
       throw({?MODULE, {?FUNCTION_NAME, _Reason}, {M, F, A}})
   end.
 
