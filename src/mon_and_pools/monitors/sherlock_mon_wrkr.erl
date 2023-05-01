@@ -24,7 +24,7 @@
 monitor_me(Name, WorkerPid) ->
   monitor_it(Name, self(), WorkerPid).
 monitor_it(Name, Me, WorkerPid) ->
-  Spread = sherlock_pool:mx_size(Name),
+  Spread = sherlock_config:mx_size(Name),
   Id = os:perf_counter() rem Spread,
   MonitPid = sherlock_registry:whereis_name({?MODULE, Name, Id}),
   gen_server:call(MonitPid, #monitor{caller = Me, object = WorkerPid}).
