@@ -6,6 +6,8 @@
 %% API
 -export([push_job_to_queue/2]).
 -export([fix_cfg/1]).
+-export([get_info/1]).
+-export([get_all_poolnames/0]).
 %% Internal API
 -export([replace_worker/3]).
 -export([init/0]).
@@ -25,13 +27,13 @@
 -export([free/2]).
 -export([get_occupied/1]).
 
+-export([w_tab/1]).
+-export([q_tab/1]).
+-export([m_tab/1]).
+
 -export([update_csize/2]).
 
 -export([push_worker/3]).
-
--export([get_info/1]).
-
--export([get_all_poolnames/0]).
 
 -record(?MODULE, {
   name           ,
@@ -44,8 +46,7 @@
   q_id = 1       ,
   wt             ,
   w_id = 1       ,
-  mfa = {sherlock_simple_worker, start_link,[0]}
-                 }).
+  mfa = {sherlock_simple_worker, start_link,[0]}}).
 
 -record(sherlock_job,{
   q_id,
@@ -163,8 +164,8 @@ push_wt(WTab, Id, WorkerPid) ->
 
 
 push_worker(PoolName, WorkerPid, Type) ->
-  QTab = q_tab(PoolName),
-  WTab = w_tab(PoolName),
+  QTab = sherlock_config:q_tab(PoolName),
+  WTab = sherlock_config:w_tab(PoolName),
   push_worker(PoolName, WorkerPid, QTab, WTab, Type).
 
 push_worker(PoolName, WorkerPid, QTab, WTab, Type) ->
@@ -205,8 +206,8 @@ push_qt(QTab, NextId, Timeout, WaitingPid, Secret) ->
 
 push_job_to_queue(PoolName, Timeout) ->
   occup(PoolName),
-  QTab = q_tab(PoolName),
-  WTab = w_tab(PoolName),
+  QTab = sherlock_config:q_tab(PoolName),
+  WTab = sherlock_config:w_tab(PoolName),
   WaitingPid = self(),
   Secret = erlang:make_ref(),
   case push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) of

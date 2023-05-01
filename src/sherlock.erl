@@ -26,13 +26,17 @@ start()->
 start_pool(Name, Opts) ->
   case ?MODULE:get_pool_info(Name) of
     {error, undefined} ->
-      sherlock_sentry_super_sup:start_child(Name, sherlock_pool:fix_cfg(Opts));
+      StartPoolRes = sherlock_sentry_super_sup:start_child(Name, sherlock_pool:fix_cfg(Opts)),
+      sherlock_meta:reconfig(),
+      StartPoolRes;
     _ ->
       {error, {?MODULE, {pool_already_started, Name}}}
   end.
 
 stop_pool(Name) ->
-  sherlock_sentry_super_sup:stop_child(Name).
+  StopPoolRes = sherlock_sentry_super_sup:stop_child(Name),
+  sherlock_meta:reconfig(),
+  StopPoolRes.
 
 
 
