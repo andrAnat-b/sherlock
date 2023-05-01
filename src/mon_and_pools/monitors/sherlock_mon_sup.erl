@@ -40,7 +40,7 @@ init({Name, Args}) ->
                intensity => MaxRestarts,
                period => MaxSecondsBetweenRestarts},
 
-  TabRef = sherlock_pool:m_tab(Name),
+  TabRef = sherlock_config:m_tab(Name),
 
   MaxSize = maps:get(max_size, Args),
 
