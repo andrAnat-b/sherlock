@@ -20,7 +20,7 @@ reconfig() ->
     ["m_tab("++lists:flatten(io_lib:format("~w",[Poolname]))++") -> erlang:binary_to_term("++lists:flatten(io_lib:format("~w",[erlang:term_to_binary(sherlock_pool:m_tab(Poolname))]))++");"||Poolname<- PoolNames] ++
     ["m_tab(Poolname) -> sherlock_pool:m_tab(Poolname)."]++
     ["mx_size("++lists:flatten(io_lib:format("~w",[Poolname]))++") -> erlang:binary_to_term("++lists:flatten(io_lib:format("~w",[erlang:term_to_binary(sherlock_pool:mx_size(Poolname))]))++");"||Poolname<- PoolNames] ++
-    ["m_tab(Poolname) -> sherlock_pool:m_tab(Poolname)."]
+    ["mx_size(Poolname) -> sherlock_pool:mx_size(Poolname)."]
   ,
   AST = merl:qquote(1, ConstHeader, []),
   code:unstick_mod(sherlock_config),
