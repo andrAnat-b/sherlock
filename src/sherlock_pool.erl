@@ -14,7 +14,6 @@
 -export([create/2]).
 -export([destroy/1]).
 
--export([m_tab/1]).
 
 -export([mx_size/1]).
 -export([mn_size/1]).
@@ -27,8 +26,7 @@
 -export([free/2]).
 -export([get_occupied/1]).
 
--export([w_tab/1]).
--export([q_tab/1]).
+-export([main_tab/1]).
 -export([m_tab/1]).
 
 -export([update_csize/2]).
@@ -42,25 +40,20 @@
   mt             ,
   mx_size = 1    ,
   mn_size = 1    ,
-  qt             ,
+  main           ,
   q_id = 1       ,
-  wt             ,
   w_id = 1       ,
   mfa = {sherlock_simple_worker, start_link,[0]}}).
 
 -record(sherlock_job,{
-  q_id,
+  id,
   ref,
   pid,
-  ttl
+  ttl,
+  type
 }).
 
--record(sherlock_wrk,{
-  w_id,
-  pid
-}).
-
--record(sherlock_msg, {qid, ref, workerpid, monref}).
+-record(sherlock_msg, {ref, workerpid, monref}).
 
 ttl(infinity = I) -> I;
 ttl(Int) when is_integer(Int) and (Int >= 0) -> (erlang:system_time(millisecond) + Int) - 5.
@@ -72,12 +65,8 @@ init() ->
   Options = [named_table, set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #?MODULE.name}],
   ets:new(?MODULE, Options).
 
-init_wt() ->
-  Options = [set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #sherlock_wrk.w_id}],
-  ets:new(?MODULE, Options).
-
-init_qt() ->
-  Options = [set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #sherlock_job.q_id}],
+init_main() ->
+  Options = [set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #sherlock_job.id}],
   ets:new(?MODULE, Options).
 
 init_mt() ->
@@ -92,8 +81,7 @@ create(PoolName, PoolArgs) ->
   Pool = Record#?MODULE{
     name = PoolName,
     mfa = MFA,
-    wt = init_wt(),
-    qt = init_qt(),
+    main = init_main(),
     mt = init_mt(),
     mx_size = Max,
     mn_size = Min
@@ -115,10 +103,9 @@ worker_id_incr(PoolName) ->
 queue_id_incr(PoolName) ->
   ets:update_counter(?MODULE, PoolName, {#?MODULE.q_id, 1, ?CTH, 0}).
 
-w_tab(PoolName) ->
-  ets:lookup_element(?MODULE, PoolName, #?MODULE.wt).
-q_tab(PoolName) ->
-  ets:lookup_element(?MODULE, PoolName, #?MODULE.qt).
+main_tab(PoolName) ->
+  ets:lookup_element(?MODULE, PoolName, #?MODULE.main).
+
 m_tab(PoolName) ->
   ets:lookup_element(?MODULE, PoolName, #?MODULE.mt).
 
@@ -133,122 +120,79 @@ get_qid(PoolName) ->
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-take_from_qt(Qtab, Id, WorkerPid) ->
-  Cts = cts(),
-  TakeQt = ets:take(Qtab, Id),
-  case TakeQt of
-    [#sherlock_job{ttl = Sts}] when (Sts < Cts) and (Sts =/= infinity) ->
-      retry;
-    [#sherlock_job{ref = R, pid = Pid}] ->
-      case is_process_alive(Pid) of
-        true ->
-          {ok, Pid, #sherlock_msg{qid = Id, ref = R, workerpid = WorkerPid}};
-        false ->
-          retry
-      end;
-    [] ->
-      gone
-  end.
-
-take_from_wt(Wtab, Id) ->
-  TakeWt = ets:take(Wtab, Id),
-  case TakeWt of
-    [#sherlock_wrk{pid = WorkerPid}] ->
-      {ok, WorkerPid};
-    [] ->
-      gone
-  end.
-
-push_wt(WTab, Id, WorkerPid) ->
-  ets:insert_new(WTab, #sherlock_wrk{w_id = Id, pid = WorkerPid}).
 
 
 push_worker(PoolName, WorkerPid, Type) ->
-  QTab = sherlock_config:q_tab(PoolName),
-  WTab = sherlock_config:w_tab(PoolName),
-  push_worker(PoolName, WorkerPid, QTab, WTab, Type).
+  Main = sherlock_config:main_tab(PoolName),
+  push_worker(PoolName, WorkerPid, Main, Type).
 
-push_worker(PoolName, WorkerPid, QTab, WTab, Type) ->
+push_worker(PoolName, WorkerPid, Main, Type) ->
   free(PoolName),
   NextId = worker_id_incr(PoolName),
-  true = push_wt(WTab, NextId, WorkerPid),
-  erlang:yield(),
-  case take_from_qt(QTab, NextId, WorkerPid) of
-    {ok, Dest, Msg} ->
-      erlang:yield(),
-      case take_from_wt(WTab, NextId) of
-        {ok, _} ->
-          case Type of
-            call ->
-              MonitorRef = sherlock_mon_wrkr:monitor_it(PoolName, Dest, WorkerPid),
-              NewMSG = Msg#sherlock_msg{monref = MonitorRef},
-              Dest ! NewMSG,
-              {Dest, NewMSG#sherlock_msg.monref, NewMSG};
-            _ ->
-              MonitorRef = erlang:monitor(process, Dest),
-              NewMSG = Msg#sherlock_msg{monref = MonitorRef},
-              {Dest, NewMSG#sherlock_msg.monref, NewMSG}
-          end;
-        gone ->
-          ok
+  Worker = #sherlock_job{
+    id = NextId,
+    type = wrk,
+    ref = null,
+    pid = WorkerPid,
+    ttl = null
+  },
+  JobID = get_qid(PoolName),
+  case ets:insert_new(Main, Worker) of
+    false ->
+      case JobID > NextId of
+        true ->
+          CTS = cts(),
+          case ets:take(Main, NextId) of
+            [#sherlock_job{ttl = TTL, type = job, ref = R, pid = P}] when (is_integer(TTL) and (TTL < CTS)) or (TTL == infinity) ->
+              case Type of
+                call ->
+                  MRef = sherlock_mon_wrkr:monitor_it(PoolName, P, WorkerPid),
+                  {P, MRef, #sherlock_msg{ref = R, monref = MRef, workerpid = WorkerPid}};
+                _ ->
+                  MRef = erlang:monitor(process, P),
+                  {P, MRef, #sherlock_msg{ref = R, monref = MRef, workerpid = WorkerPid}}
+              end;
+           _ ->
+             push_worker(PoolName, WorkerPid, Main, Type)
+          end
       end;
-    retry ->
-      take_from_wt(WTab, NextId),
-      erlang:yield(),
-      push_worker(PoolName, WorkerPid, QTab, WTab, Type);
-    gone ->
-      erlang:yield(),
-      ok
+    true -> ok
   end.
 
-push_qt(QTab, NextId, Timeout, WaitingPid, Secret) ->
-  ets:insert_new(QTab, #sherlock_job{q_id = NextId, ttl = ttl(Timeout), pid = WaitingPid, ref = Secret}).
 
 push_job_to_queue(PoolName, Timeout) ->
   occup(PoolName),
-  QTab = sherlock_config:q_tab(PoolName),
-  WTab = sherlock_config:w_tab(PoolName),
+  Main = sherlock_config:main_tab(PoolName),
   WaitingPid = self(),
   Secret = erlang:make_ref(),
-  case push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) of
+  case push_job_to_queue(PoolName, Timeout, Main, WaitingPid, Secret) of
     {ok, _WorkerPid, _MonRef} = Result->
       Result;
-    {wait, NextId} ->
+    {wait, Object} ->
       Fun = fun () ->
-        ets:delete(QTab, NextId),
+        ets:delete_object(Main, Object),
         free(PoolName)
       end,
       wait(Secret, Timeout+5, Fun)
   end.
 
-%%push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
-%%  NextId = queue_id_incr(PoolName),
-%%  true = push_qt(QTab, NextId, Timeout, WaitingPid, Secret), %% do it after try obtain worker
-%%  case take_from_wt(WTab, NextId) of
-%%    {ok, WorkerPid} ->
-%%      TakeQt = take_from_qt(QTab, NextId, WorkerPid),
-%%      case TakeQt of
-%%        {ok, _, _} ->
-%%          MonRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
-%%          {ok, WorkerPid, MonRef};
-%%        retry ->
-%%          wait;
-%%        gone ->
-%%          wait
-%%      end;
-%%    gone ->
-%%      wait
-%%  end.
-
-push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
+push_job_to_queue(PoolName, Timeout, Main, WaitingPid, Secret) ->
   NextId = queue_id_incr(PoolName),
-  case take_from_wt(WTab, NextId) of
-    {ok, WorkerPid} ->
+  Job =
+    #sherlock_job{
+      id = NextId,
+      ttl = ttl(Timeout),
+      pid = WaitingPid,
+      ref = Secret,
+      type = job
+    },
+  case ets:insert_new(Main, Job) of
+    true ->
+      {wait, Job};
+    _ ->
+      [#sherlock_job{pid = WorkerPid, type = wrk}] = ets:take(Main, NextId),
       MonRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
-      {ok, WorkerPid, MonRef};
-    gone ->
-      true = push_qt(QTab, NextId, Timeout, WaitingPid, Secret),
-      {wait, NextId}
+      {ok, WorkerPid, MonRef}
   end.
 
 wait(Secret, Timeout, Fun) ->
@@ -290,45 +234,13 @@ get_occupied(Name) ->
   ets:lookup_element(?MODULE, Name, #?MODULE.occupation).
 
 replace_worker(PoolName, OldWorker, NewWorker) ->
-  WTab = get_wid(PoolName),
+  WTab = main_tab(PoolName),
   MatchSpecReplace = ets:fun2ms(fun
-                           (#sherlock_wrk{w_id = JobID, pid = Worker}) when Worker == OldWorker ->
-                             #sherlock_wrk{w_id = JobID, pid = NewWorker}
+                           (#sherlock_job{id = JobID, pid = Worker, type = wrk, ref = null, ttl = null}) when Worker == OldWorker ->
+                             #sherlock_job{id = JobID, pid = NewWorker, type = wrk, ref = null, ttl = null}
                          end),
   Success = (1 =:= ets:select_replace(WTab, MatchSpecReplace)),
-  if
-    Success ->
-      MatchSpec = ets:fun2ms(fun
-                              (#sherlock_wrk{w_id = JobID, pid = Worker}) when Worker == OldWorker ->
-                                JobID
-                            end),
-      case ets:select(WTab, MatchSpec) of
-        [] -> ok;
-        [JobID] ->
-          QTab = get_wid(PoolName),
-          TakeQt = take_from_qt(QTab, JobID, NewWorker),
-          case TakeQt of
-            {ok, WaitingPid, Message} ->
-             case erlang:is_process_alive(WaitingPid) of
-               true ->
-                 WaitingPid ! Message;
-               _ ->
-                 push_worker(PoolName, NewWorker, call)
-             end;
-            retry ->
-              push_worker(PoolName, NewWorker, call);
-            gone ->
-              push_worker(PoolName, NewWorker, call)
-          end
-      end;
-    true ->
-      MatchSpecDelete = ets:fun2ms(fun
-                                      (#sherlock_wrk{w_id = _, pid = Worker}) when Worker == OldWorker ->
-                                        true
-                                    end),
-      ets:select_delete(WTab, MatchSpecDelete),
-      push_worker(PoolName, NewWorker, call)
-  end.
+  Success.
 
 get_info(Poolname) ->
   case ets:lookup(?MODULE, Poolname) of
