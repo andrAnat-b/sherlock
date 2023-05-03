@@ -100,10 +100,12 @@ mn_size(PoolName) ->
   ets:lookup_element(?MODULE, PoolName, #?MODULE.mn_size).
 
 worker_id_incr(PoolName) ->
-  ets:update_counter(?MODULE, PoolName, [{#?MODULE.w_id, 1, ?CTH, 0}, {#?MODULE.occupation, -1}]).
+  [Next, _] = ets:update_counter(?MODULE, PoolName, [{#?MODULE.w_id, 1, ?CTH, 0}, {#?MODULE.occupation, -1}]),
+  Next.
 
 queue_id_incr(PoolName) ->
-  ets:update_counter(?MODULE, PoolName, [{#?MODULE.q_id, 1, ?CTH, 0}, {#?MODULE.occupation, 1}]).
+  [Next, _] = ets:update_counter(?MODULE, PoolName, [{#?MODULE.q_id, 1, ?CTH, 0}, {#?MODULE.occupation, 1}]),
+  Next.
 
 main_tab(PoolName) ->
   ets:lookup_element(?MODULE, PoolName, #?MODULE.main).
@@ -171,7 +173,7 @@ push_job_to_queue(PoolName, Timeout) ->
       Result;
     {wait, _Object, WaitId} ->
       Fun = fun () ->
-        ets:update_counter(Main, WaitId, {#sherlock_job.cnt, 1}),
+        catch ets:update_counter(Main, WaitId, {#sherlock_job.cnt, 1}),
             ok
       end,
       wait(Secret, Timeout+5, Fun)
