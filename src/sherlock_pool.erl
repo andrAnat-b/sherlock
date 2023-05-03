@@ -148,11 +148,11 @@ push_worker(PoolName, WorkerPid, Main, Type) ->
   case ets:update_counter(Main, NextId, {#sherlock_job.cnt, 1}, Worker) of
     1 -> ok;
     _ ->
-      case ets:take(Main, NextId) of
+      case ets:lookup(Main, NextId) of
         [#sherlock_job{ttl = TTL} = Rec] when (TTL == infinity) or (is_integer(TTL) and (TTL > CTS)) ->
           Caller  = Rec#sherlock_job.pid,
           MRef = monitor_ref(PoolName, Caller, WorkerPid, Type),
-          {Caller, MRef, #sherlock_msg{ref = Rec#sherlock_job.ref, workerpid = WorkerPid, monref = MRef}};
+          {Caller, MRef, #sherlock_msg{ref = Rec#sherlock_job.ref, workerpid = WorkerPid, monref = MRef}, Main, NextId};
         _ ->
           push_worker(PoolName, WorkerPid, Main, Type)
       end
