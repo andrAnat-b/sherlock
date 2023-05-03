@@ -14,7 +14,7 @@ reconfig() ->
     "-export([m_tab/1])."] ++
     ["main_tab("++lists:flatten(io_lib:format("~w",[Poolname]))++") -> erlang:binary_to_term("++lists:flatten(io_lib:format("~w",[erlang:term_to_binary(sherlock_pool:main_tab(Poolname))]))++");"||Poolname<- PoolNames] ++
     ["main_tab(Poolname) -> sherlock_pool:q_tab(Poolname)."] ++
-    ["m_tab("++lists:flatten(io_lib:format("~w",[Poolname]))++") -> erlang:binary_to_term("++lists:flatten(io_lib:format("~w",[erlang:term_to_binary(sherlock_pool:main_tab(Poolname))]))++");"||Poolname<- PoolNames] ++
+    ["m_tab("++lists:flatten(io_lib:format("~w",[Poolname]))++") -> erlang:binary_to_term("++lists:flatten(io_lib:format("~w",[erlang:term_to_binary(sherlock_pool:m_tab(Poolname))]))++");"||Poolname<- PoolNames] ++
     ["m_tab(Poolname) -> sherlock_pool:m_tab(Poolname)."]++
     ["mx_size("++lists:flatten(io_lib:format("~w",[Poolname]))++") -> erlang:binary_to_term("++lists:flatten(io_lib:format("~w",[erlang:term_to_binary(sherlock_pool:mx_size(Poolname))]))++");"||Poolname<- PoolNames] ++
     ["mx_size(Poolname) -> sherlock_pool:mx_size(Poolname)."]

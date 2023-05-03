@@ -32,6 +32,7 @@ monitor_it(Name, Me, WorkerPid) ->
 demonitor_me(Name, WorkerPid, Ref) ->
   Caller = self(),
   MTab = sherlock_config:m_tab(Name),
+  erlang:display(ets:tab2list(MTab)),
   [{{Caller, Ref}, WorkerPid, MonitPid}] = ets:lookup(MTab, {Caller, Ref}),  %% @todo rewrite to lookup element
   gen_server:cast(MonitPid, #demonitor{caller = Caller, object = WorkerPid, ref = Ref}).
 
