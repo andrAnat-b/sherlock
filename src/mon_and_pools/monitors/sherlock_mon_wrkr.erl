@@ -83,10 +83,9 @@ handle_cast(#demonitor{caller = Caller, object = WorkerPid, ref = Ref}, State = 
   erlang:demonitor(MRef, [flush]),
   case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid, nocall) of
     ok -> ok;
-    {NewCaller, NewMref, NewMessage, Main, Id} ->
+    {NewCaller, NewMref, NewMessage} ->
       ets:insert(M, {{NewCaller, NewMref}, WorkerPid, MonitorProc}),
-      NewCaller ! NewMessage,
-      ets:delete(Main, Id)
+      NewCaller ! NewMessage
   end,
   {noreply, State};
 handle_cast(_Request, State = #sherlock_mon_wrkr_state{}) ->
@@ -103,10 +102,9 @@ handle_info(#'DOWN'{ref = MRef, type = process, id = Caller, reason = _}, State 
   [{{Caller, MRef}, WorkerPid, MonitorProc}] = ets:take(M, {Caller, MRef}),
   case sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid, nocall) of
     ok -> ok;
-    {NewCaller, NewMref, NewMessage, Main, Id} ->
+    {NewCaller, NewMref, NewMessage} ->
       ets:insert(M, {{NewCaller, NewMref}, WorkerPid, MonitorProc}),
-      NewCaller ! NewMessage,
-      ets:delete(Main, Id)
+      NewCaller ! NewMessage
   end,
   {noreply, State};
 handle_info(_Info, State = #sherlock_mon_wrkr_state{}) ->

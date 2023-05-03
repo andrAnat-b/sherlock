@@ -49,9 +49,9 @@
 
 -record(sherlock_job,{
   id,
-  ref,
+  ref = null,
   pid,
-  ttl,
+  ttl = null,
   cnt
 }).
 
@@ -100,10 +100,10 @@ mn_size(PoolName) ->
   ets:lookup_element(?MODULE, PoolName, #?MODULE.mn_size).
 
 worker_id_incr(PoolName) ->
-  ets:update_counter(?MODULE, PoolName, {#?MODULE.w_id, 1, ?CTH, 0}).
+  ets:update_counter(?MODULE, PoolName, [{#?MODULE.w_id, 1, ?CTH, 0}, {#?MODULE.occupation, -1}]).
 
 queue_id_incr(PoolName) ->
-  ets:update_counter(?MODULE, PoolName, {#?MODULE.q_id, 1, ?CTH, 0}).
+  ets:update_counter(?MODULE, PoolName, [{#?MODULE.q_id, 1, ?CTH, 0}, {#?MODULE.occupation, 1}]).
 
 main_tab(PoolName) ->
   ets:lookup_element(?MODULE, PoolName, #?MODULE.main).
@@ -115,10 +115,10 @@ update_csize(PoolName, Csize) ->
   ets:update_element(?MODULE, PoolName, {#?MODULE.c_size, Csize}).
 
 get_wid(PoolName) ->
-  ets:lookup_element(?MODULE, PoolName, #?MODULE.w_id).
+  ets:update_counter(?MODULE, PoolName, {#?MODULE.w_id, 0}).
 
 get_qid(PoolName) ->
-  ets:lookup_element(?MODULE, PoolName, #?MODULE.q_id).
+  ets:update_counter(?MODULE, PoolName, {#?MODULE.q_id, 0}).
 
 set_main(PoolName, TabRef) ->
   ets:update_element(?MODULE, PoolName, {#?MODULE.main, TabRef}).
@@ -135,42 +135,43 @@ push_worker(PoolName, WorkerPid, Type) ->
   push_worker(PoolName, WorkerPid, Main, Type).
 
 push_worker(PoolName, WorkerPid, Main, Type) ->
-  free(PoolName),
   NextId = worker_id_incr(PoolName),
   Worker = #sherlock_job{
     id = NextId,
     cnt = 0,
-    ref = null,
-    pid = WorkerPid,
-    ttl = null
+    pid = WorkerPid
   },
   CTS = cts(),
   case ets:update_counter(Main, NextId, {#sherlock_job.cnt, 1}, Worker) of
     1 -> ok;
-    _ ->
-      case ets:lookup(Main, NextId) of
-        [#sherlock_job{ttl = TTL} = Rec] when (TTL == infinity) or (is_integer(TTL) and (TTL > CTS)) ->
+    2 ->
+      case ets:take(Main, NextId) of
+        [#sherlock_job{ttl = TTL, cnt = 2} = Rec] when (TTL == infinity) or (is_integer(TTL) and (TTL > CTS)) ->
           Caller  = Rec#sherlock_job.pid,
           MRef = monitor_ref(PoolName, Caller, WorkerPid, Type),
-          {Caller, MRef, #sherlock_msg{ref = Rec#sherlock_job.ref, workerpid = WorkerPid, monref = MRef}, Main, NextId};
+          {Caller, MRef, #sherlock_msg{ref = Rec#sherlock_job.ref, workerpid = WorkerPid, monref = MRef}};
+        [] ->
+          push_worker(PoolName, WorkerPid, Main, Type);
         _ ->
+          ets:delete(Main, NextId),
           push_worker(PoolName, WorkerPid, Main, Type)
-      end
+      end;
+    3 ->
+      ets:delete(Main, NextId),
+      push_worker(PoolName, WorkerPid, Main, Type)
   end.
 
 
 push_job_to_queue(PoolName, Timeout) ->
-  occup(PoolName),
   Main = sherlock_config:main_tab(PoolName),
   WaitingPid = self(),
   Secret = erlang:make_ref(),
   case push_job_to_queue(PoolName, Timeout, Main, WaitingPid, Secret) of
     {ok, _WorkerPid, _MonRef} = Result->
       Result;
-    {wait, _Object} ->
+    {wait, _Object, WaitId} ->
       Fun = fun () ->
-%%        ets:delete_object(Main, Object),
-%%        free(PoolName),
+        ets:update_counter(Main, WaitId, {#sherlock_job.cnt, 1}),
             ok
       end,
       wait(Secret, Timeout+5, Fun)
@@ -188,7 +189,7 @@ push_job_to_queue(PoolName, Timeout, Main, WaitingPid, Secret) ->
     },
   case ets:update_counter(Main, NextId, {#sherlock_job.cnt, 1}, Job) of
     1 ->
-      {wait, Job};
+      {wait, Job, NextId};
     _ ->
       [#sherlock_job{pid = WorkerPid}] = ets:take(Main, NextId),
       MonRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
