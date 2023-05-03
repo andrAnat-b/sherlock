@@ -52,7 +52,7 @@
   ref,
   pid,
   ttl,
-  type
+  cnt
 }).
 
 -record(sherlock_msg, {ref, workerpid, monref}).
@@ -139,39 +139,22 @@ push_worker(PoolName, WorkerPid, Main, Type) ->
   NextId = worker_id_incr(PoolName),
   Worker = #sherlock_job{
     id = NextId,
-    type = wrk,
+    cnt = 0,
     ref = null,
     pid = WorkerPid,
     ttl = null
   },
   CTS = cts(),
-  case ets:take(Main, NextId) of
-    [#sherlock_job{ttl = TTL, type = job, ref = R, pid = P}] when (is_integer(TTL) and (TTL < CTS)) or (TTL == infinity) ->
-      case Type of
-        call ->
-          MRef = sherlock_mon_wrkr:monitor_it(PoolName, P, WorkerPid),
-          {P, MRef, #sherlock_msg{ref = R, monref = MRef, workerpid = WorkerPid}};
-        _ ->
-          MRef = erlang:monitor(process, P),
-          {P, MRef, #sherlock_msg{ref = R, monref = MRef, workerpid = WorkerPid}}
-      end;
+  case ets:update_counter(Main, NextId, {#sherlock_job.cnt, 1}, Worker) of
+    1 -> ok;
     _ ->
-      case ets:insert_new(Main, Worker) of
-        false ->
-          case ets:take(Main, NextId) of
-            [#sherlock_job{ttl = TTL, type = job, ref = R, pid = P}] when (is_integer(TTL) and (TTL < CTS)) or (TTL == infinity) ->
-              case Type of
-                call ->
-                  MRef = sherlock_mon_wrkr:monitor_it(PoolName, P, WorkerPid),
-                  {P, MRef, #sherlock_msg{ref = R, monref = MRef, workerpid = WorkerPid}};
-                _ ->
-                  MRef = erlang:monitor(process, P),
-                  {P, MRef, #sherlock_msg{ref = R, monref = MRef, workerpid = WorkerPid}}
-              end;
-            _ ->
-              push_worker(PoolName, WorkerPid, Main, Type)
-          end;
-        true -> ok
+      case ets:take(Main, NextId) of
+        [#sherlock_job{ttl = TTL} = Rec] when (TTL == infinity) or (is_integer(TTL) and (TTL > CTS)) ->
+          Caller  = Rec#sherlock_job.pid,
+          MRef = monitor_ref(PoolName, Caller, WorkerPid, Type),
+          {Caller, MRef, #sherlock_msg{ref = Rec#sherlock_job.ref, workerpid = WorkerPid, monref = MRef}};
+        _ ->
+          push_worker(PoolName, WorkerPid, Main, Type)
       end
   end.
 
@@ -201,21 +184,15 @@ push_job_to_queue(PoolName, Timeout, Main, WaitingPid, Secret) ->
       ttl = ttl(Timeout),
       pid = WaitingPid,
       ref = Secret,
-      type = job
+      cnt = 0
     },
-  case ets:take(Main, NextId) of
-    [#sherlock_job{pid = WorkerPid, type = wrk}] ->
+  case ets:update_counter(Main, NextId, {#sherlock_job.cnt, 1}, Job) of
+    1 ->
+      {wait, Job};
+    _ ->
+      [#sherlock_job{pid = WorkerPid}] = ets:take(Main, NextId),
       MonRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
-      {ok, WorkerPid, MonRef};
-    [] ->
-      case ets:insert_new(Main, Job) of
-        true ->
-          {wait, Job};
-        _ ->
-          [#sherlock_job{pid = WorkerPid, type = wrk}] = ets:take(Main, NextId),
-          MonRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
-          {ok, WorkerPid, MonRef}
-      end
+      {ok, WorkerPid, MonRef}
   end.
 
 wait(Secret, Timeout, Fun) ->
@@ -259,8 +236,8 @@ get_occupied(Name) ->
 replace_worker(PoolName, OldWorker, NewWorker) ->
   WTab = main_tab(PoolName),
   MatchSpecReplace = ets:fun2ms(fun
-                           (#sherlock_job{id = JobID, pid = Worker, type = wrk, ref = null, ttl = null}) when Worker == OldWorker ->
-                             #sherlock_job{id = JobID, pid = NewWorker, type = wrk, ref = null, ttl = null}
+                           (#sherlock_job{id = JobID, pid = Worker, cnt = 1, ref = null, ttl = null}) when Worker == OldWorker ->
+                             #sherlock_job{id = JobID, pid = NewWorker, cnt = 1, ref = null, ttl = null}
                          end),
   Success = (1 =:= ets:select_replace(WTab, MatchSpecReplace)),
   Success.
@@ -282,3 +259,8 @@ get_info(Poolname) ->
 get_all_poolnames() ->
   Spec = ets:fun2ms(fun(#?MODULE{name = Name}) -> Name end),
   ets:select(?MODULE, Spec).
+
+monitor_ref(PoolName, Caller, WorkerPid, call) ->
+  sherlock_mon_wrkr:monitor_it(PoolName, Caller, WorkerPid);
+monitor_ref(_, Caller, _, _) ->
+  erlang:monitor(process, Caller).
