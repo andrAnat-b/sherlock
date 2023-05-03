@@ -14,8 +14,6 @@
 -export([create/2]).
 -export([destroy/1]).
 
--export([m_tab/1]).
-
 -export([mx_size/1]).
 -export([mn_size/1]).
 -export([get_qid/1]).
@@ -170,35 +168,44 @@ push_worker(PoolName, WorkerPid, Type) ->
 
 push_worker(PoolName, WorkerPid, QTab, WTab, Type) ->
   free(PoolName),
+  Qid = get_qid(PoolName),
   NextId = worker_id_incr(PoolName),
-  true = push_wt(WTab, NextId, WorkerPid),
-  erlang:yield(),
-  case take_from_qt(QTab, NextId, WorkerPid) of
-    {ok, Dest, Msg} ->
-      erlang:yield(),
-      case take_from_wt(WTab, NextId) of
-        {ok, _} ->
-          case Type of
-            call ->
+  case NextId < Qid of
+    true ->
+      case {take_from_qt(QTab, NextId, WorkerPid), Type} of
+        {{ok, Dest, Msg}, call} ->
+          MonitorRef = sherlock_mon_wrkr:monitor_it(PoolName, Dest, WorkerPid),
+          NewMSG = Msg#sherlock_msg{monref = MonitorRef},
+          Dest ! NewMSG,
+          {Dest, NewMSG#sherlock_msg.monref, NewMSG};
+        {{ok, Dest, Msg}, _} ->
+          MonitorRef = erlang:monitor(process, Dest),
+          NewMSG = Msg#sherlock_msg{monref = MonitorRef},
+          {Dest, NewMSG#sherlock_msg.monref, NewMSG};
+        _ ->
+          push_worker(PoolName, WorkerPid, QTab, WTab, Type)
+      end;
+    _ ->
+      true = push_wt(WTab, NextId, WorkerPid),
+      case take_from_qt(QTab, NextId, WorkerPid) of
+        {ok, Dest, Msg} ->
+          case {take_from_wt(WTab, NextId), Type} of
+            {{ok, _}, call} ->
               MonitorRef = sherlock_mon_wrkr:monitor_it(PoolName, Dest, WorkerPid),
               NewMSG = Msg#sherlock_msg{monref = MonitorRef},
               Dest ! NewMSG,
               {Dest, NewMSG#sherlock_msg.monref, NewMSG};
-            _ ->
+            {{ok,_}, _} ->
               MonitorRef = erlang:monitor(process, Dest),
               NewMSG = Msg#sherlock_msg{monref = MonitorRef},
-              {Dest, NewMSG#sherlock_msg.monref, NewMSG}
+              {Dest, NewMSG#sherlock_msg.monref, NewMSG};
+            {gone, _} -> ok
           end;
+        retry ->
+          push_worker(PoolName, WorkerPid, QTab, WTab, Type);
         gone ->
           ok
-      end;
-    retry ->
-      take_from_wt(WTab, NextId),
-      erlang:yield(),
-      push_worker(PoolName, WorkerPid, QTab, WTab, Type);
-    gone ->
-      erlang:yield(),
-      ok
+      end
   end.
 
 push_qt(QTab, NextId, Timeout, WaitingPid, Secret) ->
