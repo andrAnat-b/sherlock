@@ -66,7 +66,7 @@ init() ->
   ets:new(?MODULE, Options).
 
 init_main() ->
-  Options = [set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #sherlock_job.id}],
+  Options = [set, public, {read_concurrency, true}, {write_concurrency, false}, {keypos, #sherlock_job.id}],
   ets:new(?MODULE, Options).
 
 init_mt() ->
@@ -164,10 +164,11 @@ push_job_to_queue(PoolName, Timeout) ->
   case push_job_to_queue(PoolName, Timeout, Main, WaitingPid, Secret) of
     {ok, _WorkerPid, _MonRef} = Result->
       Result;
-    {wait, Object} ->
+    {wait, _Object} ->
       Fun = fun () ->
-        ets:delete_object(Main, Object),
-        free(PoolName)
+%%        ets:delete_object(Main, Object),
+%%        free(PoolName),
+            ok
       end,
       wait(Secret, Timeout+5, Fun)
   end.
