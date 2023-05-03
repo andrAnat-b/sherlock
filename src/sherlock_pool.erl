@@ -66,7 +66,7 @@ init() ->
   ets:new(?MODULE, Options).
 
 init_main() ->
-  Options = [set, public, {read_concurrency, true}, {write_concurrency, false}, {keypos, #sherlock_job.id}],
+  Options = [set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #sherlock_job.id}],
   ets:new(?MODULE, Options).
 
 init_mt() ->
