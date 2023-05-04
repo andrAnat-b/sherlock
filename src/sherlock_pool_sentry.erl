@@ -127,7 +127,6 @@ resize_pool(PoolName, Args, Counter) ->
     StbCSize when (StbCSize < Size) and (Size < Max) ->
       MaxAllowedEnlarge = Max - Min,
       QueueSize = ets:info(sherlock_pool:get_queue(PoolName), size),
-      io:format("ENLARGE ~p~n~n~n", [[{'PoolName', PoolName}, {'MaxAllowedEnlarge', MaxAllowedEnlarge}, {'QueueSize', QueueSize}]]),
       do_enlarge(PoolName, Args, min(MaxAllowedEnlarge, QueueSize));
     StbCSize when (Size > Min) and (Counter == ?MAX_COUNT) and (StbCSize > 1) ->
       shrink_pool(PoolName);
@@ -137,7 +136,6 @@ resize_pool(PoolName, Args, Counter) ->
 
 
 do_enlarge(PoolName, Args, EnlargeSize) when EnlargeSize > 0 ->
-  io:format("ENLARGE ~p~n~n~n", [[PoolName, Args, EnlargeSize]]),
   [enlarge_pool(PoolName, Args) || _ <- lists:seq(1, EnlargeSize)];
 do_enlarge(_PoolName, _Args, _EnlargeSize) ->
   nop.
