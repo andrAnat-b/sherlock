@@ -27,6 +27,10 @@
 
 -export([push_worker/2]).
 
+-export([get_info/1]).
+
+-export([get_all_poolnames/0]).
+
 -record(?MODULE, {
   name           ,
   c_size = 0     ,
@@ -85,7 +89,7 @@ create(PoolName, PoolArgs) ->
     mx_size = Max,
     mn_size = Min
   },
-  ets:insert_new(?MODULE, Pool).
+  ets:insert(?MODULE, Pool).
 
 destroy(PoolName) ->
   ets:delete(?MODULE, PoolName).
@@ -277,3 +281,21 @@ replace_worker(PoolName, OldWorker, NewWorker) ->
       ets:select_delete(WTab, MatchSpecDelete),
       push_worker(PoolName, NewWorker)
   end.
+
+get_info(Poolname) ->
+  case ets:lookup(?MODULE, Poolname) of
+    [#?MODULE{} = R|_] ->
+      #{
+        name     => R#?MODULE.name,
+        size     => R#?MODULE.c_size,
+        usage    => R#?MODULE.occupation + R#?MODULE.mn_size,
+        min_size => R#?MODULE.mn_size,
+        max_size => R#?MODULE.mx_size
+      };
+    [] ->
+      {error, undefined}
+  end.
+
+get_all_poolnames() ->
+  Spec = ets:fun2ms(fun(#?MODULE{name = Name}) -> Name end),
+  ets:select(?MODULE, Spec).
