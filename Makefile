@@ -5,10 +5,4 @@ PROJECT_VERSION = $(GITDESCRIBE)
 LOCAL_DEPS += syntax_tools
 LOCAL_DEPS += compiler
 
-DEPS += lager
-
-dep_lager = git https://github.com/erlang-lager/lager.git 3.9.2
-
-ERLC_OPTS += '+{parse_transform, lager_transform}'
-
 include erlang.mk
