@@ -58,7 +58,7 @@ do_start_preconfigured_pools() ->
   Pools = application:get_env(sherlock:'_app_name_'(), pools, []),
   case is_list(Pools) of
     true ->
-      [ sherlock:start_pool(Name, Args) || {Name, Args} <- Pools ];
+      [sherlock:start_pool(Name, Args) || {Name, Args} <- Pools];
     _ ->
       maps:foreach(fun(Name, Args) -> sherlock:start_pool(Name, Args) end, Pools)
   end.
