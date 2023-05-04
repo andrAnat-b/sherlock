@@ -3,7 +3,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/2, add_child/2, rem_child/2]).
+-export([start_link/2, add_child/2, rem_child/2, get_child_pids/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -17,14 +17,27 @@
 %% @doc Starts the supervisor
 -spec(start_link(Name :: any(), Args :: map()) -> {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link(Name, Args) ->
-  watson:create_namespace(Name, #{}),
+  _ = watson:create_namespace(Name, #{}),
   supervisor:start_link(watson:via(Name, {?MODULE, Name}), ?MODULE, {Name, Args}).
 
 add_child(Name, Args) ->
-  supervisor:start_child(watson:whereis_name(watson:via(Name, {?MODULE, Name})), Args).
+  WArgs = maps:get(worker_args, Args),
+  Module = maps:get(mod, Args),
+  Function = maps:get(fn, Args),
+  Spec = #{id => {Name, os:perf_counter()},
+           start => {sherlock_worker, start_link, [Name, Module, Function, WArgs]},
+           restart => transient,
+           shutdown => 2000,
+           type => worker,
+           modules => dynamic},
+  supervisor:start_child(watson:whereis_name(watson:via(Name, {?MODULE, Name})), Spec).
 
 rem_child(Name, ChildPid) ->
   supervisor:terminate_child(watson:whereis_name(watson:via(Name, {?MODULE, Name})), watson:whereis_name(watson:via(Name, ChildPid))).
+
+get_child_pids(Name) ->
+  Ret = supervisor:which_children(watson:whereis_name(watson:via(Name, {?MODULE, Name}))),
+  [ Child || {_Id, Child, _Type, _Modules} <- Ret].
 
 
 %%%===================================================================
@@ -49,26 +62,35 @@ init({Name, Args}) ->
                period => MaxSecondsBetweenRestarts},
 
   PoolSize   = maps:get(min_size,    Args, 1),
-  WorkerArgs = maps:get(worker_args, Args, #{state => 0}),
   Module     = maps:get(mod,         Args, sherlock_uniworker),
-  Function   = maps:get(fn,          Args, start_worker),
-  PoolArgs   = maps:get(args,        Args, [Name, Module, WorkerArgs]),
+  Function   = maps:get(fn,          Args, start_link),
+  PoolArgs   = maps:get(args,        Args, [#{state => 0}]),
 
   sherlock_pool:new(Name, Args),
 
   Seq = lists:seq(0, PoolSize-1),
 
-  ChildSpec = [spec_permanent(Name, Id, Module, Function, PoolArgs) || Id <- Seq],
+  ChildSpec = [spec_permanent(Name, os:perf_counter(), Module, Function, PoolArgs) || _ <- Seq],
 
-  {ok, {SupFlags, ChildSpec}}.
+  Overseer =  #{
+    id => {Name, sherlock_pool_sentry},
+    start => {sherlock_pool_sentry, start_link, [Name]},
+    restart => transient,
+    shutdown => 2000,
+    type => worker,
+    modules => dynamic
+  },
+
+  {ok, {SupFlags, ChildSpec ++ [Overseer]}}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
 spec_permanent(Name, Id, Module, Function, Args) ->
-  #{id => watson:via(Name, {Name, Id}),
-    start => {Module, Function, Args},
+  #{id => {Name, Id},
+%%    start => {sherlock_uniworker, start_link, Args},
+    start => {sherlock_worker, start_link, [Name, Module, Function, Args]},
     restart => transient,
     shutdown => 2000,
     type => worker,

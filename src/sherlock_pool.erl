@@ -11,10 +11,18 @@
 
 %% INTERNAL API
 -export(['_new_main_'/0]).
+-export([get_pool_opts/1]).
+-export([get_size/1]).
+-export([get_max_size/1]).
+-export([get_min_size/1]).
 -export([get_queue/1]).
 -export([get_standby/1]).
 -export([usage_decr/1]).
 -export([usage_incr/1]).
+-export([usage_get/1]).
+-export([jdiff/1]).
+
+-export([worker_return/2]).
 
 -export([join_pool/2]).
 -export([leave_pool/2]).
@@ -114,6 +122,12 @@ get_max_size(PoolName) ->
   end.
 
 
+usage_get(PoolName) ->
+  case ets:lookup(?MODULE, PoolName) of
+    [#sherlock_pool{used = Size}|_] -> Size;
+    _ -> throw({?MODULE, {undefined_pool, PoolName}})
+  end.
+
 usage_incr(PoolName) ->
   ets:update_counter(?MODULE, PoolName, {#sherlock_pool.used, 1}).
 
@@ -170,10 +184,11 @@ join_pool(PoolName, WorkerPid) ->
   NewSize = resize_pool(PoolName, 1),
   case NewSize =< MaxSize of
     true ->
-      worker_return(PoolName, WorkerPid);
+      release_worker(PoolName, WorkerPid);
     _ ->
       resize_pool(PoolName, -1),
-      throw({error, {{?MODULE, PoolName}, {max_size_overflow, MaxSize}}})
+      leave_pool(PoolName, WorkerPid),
+      {pool, oversize}
   end.
 
 leave_pool(PoolName, WorkerPid) ->
@@ -181,11 +196,11 @@ leave_pool(PoolName, WorkerPid) ->
   NewSize = resize_pool(PoolName, -1),
   case NewSize >= MinSize of
     true ->
-      WorkerPid,
-      sherlock_pool_sup:rem_child(PoolName, WorkerPid);
+      WorkerPid;
     _ ->
       resize_pool(PoolName, 1),
-      throw({error, {{?MODULE, PoolName}, {min_size_overflow, MinSize}}})
+      worker_return(PoolName, WorkerPid),
+      {pool, undersize}
   end.
 
 wait_for_enqueued(Ref, JobId, Timeout) ->
@@ -198,6 +213,27 @@ wait_for_enqueued(Ref, JobId, Timeout) ->
       timed_out
   end.
 
+
+get_pool_opts(PoolName) ->
+  case ets:lookup(?MODULE, PoolName) of
+    [#sherlock_pool{} = Opts|_] ->
+      #{
+        worker_args => Opts#sherlock_pool.pool_args,
+        mod => Opts#sherlock_pool.pool_mod,
+        size => Opts#sherlock_pool.size,
+        min_size => Opts#sherlock_pool.min_size,
+        max_size => Opts#sherlock_pool.max_size,
+        fn => Opts#sherlock_pool.pool_fun
+      };
+    [] -> throw({?MODULE, {undefined_pool, PoolName}})
+  end.
+
+jdiff(PoolName) ->
+  case ets:lookup(?MODULE, PoolName) of
+    [#sherlock_pool{stb_id = Standby, que_id = Queue}|_] -> Queue - Standby;
+    _ -> throw({?MODULE, {undefined_pool, PoolName}})
+  end.
+
 %% =========================================================================
 
 new(Name, Opts) ->
@@ -205,10 +241,10 @@ new(Name, Opts) ->
     throw({?MODULE, {name_occupied, Name}})
   catch _What ->
     Default = #sherlock_pool{},
-    Min = maps:get(min_size, Opts, erlang:max(1, Default#sherlock_pool.min_size)),
+    Min = maps:get(min_size, Opts, Default#sherlock_pool.min_size),
     Max = maps:get(max_size, Opts, erlang:max(Min, Default#sherlock_pool.max_size)),
     Module     = maps:get(mod, Opts, sherlock_uniworker),
-    Function   = maps:get(fn,  Opts, start_worker),
+    Function   = maps:get(fn,  Opts, start_link),
     NewPoolRec = #sherlock_pool{
       name = Name,
       min_size = Min,
@@ -217,7 +253,7 @@ new(Name, Opts) ->
       standby = create_standby_tab(),
       pool_mod = Module,
       pool_fun = Function,
-      pool_args = maps:get(worker_args, Opts, #{state => 0})
+      pool_args = maps:get(worker_args, Opts, [#{state => 0}])
     },
     ets:insert_new(?MODULE, NewPoolRec)
   end.
@@ -259,7 +295,16 @@ release_worker(PoolName, WorkerPid) ->
     #sherlock_queue{ref = Ref, proc = WaitingPid} ->
       case take_worker(PoolName, JobId) of
         {ok, WorkerPid} ->
-          erlang:send(WaitingPid, #sherlock_msg{order = JobId, ref = Ref, worker_pid = WorkerPid});
+          case is_process_alive(WaitingPid) of
+            true ->
+              erlang:send(WaitingPid, #sherlock_msg{order = JobId, ref = Ref, worker_pid = WorkerPid}),
+              case is_process_alive(WaitingPid) of
+                true -> ok;
+                _ -> release_worker(PoolName, WorkerPid)
+              end;
+            _ ->
+              release_worker(PoolName, WorkerPid)
+          end;
         _ ->
           ok
       end;
