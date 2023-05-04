@@ -56,7 +56,7 @@
   pid
 }).
 
--record(sherlock_msg, {ref, workerpid}).
+-record(sherlock_msg, {ref, workerpid, monref}).
 
 ttl(infinity = I) -> I;
 ttl(Int) when is_integer(Int) and (Int >= 0) -> (erlang:system_time(millisecond) + Int) - 5.
@@ -120,7 +120,7 @@ get_wid(PoolName) ->
 get_qid(PoolName) ->
   ets:lookup_element(?MODULE, PoolName, #?MODULE.q_id).
 
-take_from_qt(Qtab, Id, WorkerPid) ->
+take_from_qt(PoolName, Qtab, Id, WorkerPid) ->
   Cts = cts(),
   TakeQt = ets:take(Qtab, Id),
   case TakeQt of
@@ -129,8 +129,8 @@ take_from_qt(Qtab, Id, WorkerPid) ->
     [#sherlock_job{ref = R, pid = Pid}] ->
       case is_process_alive(Pid) of
         true ->
-%%          maybe monitor ???
-          {ok, Pid, #sherlock_msg{ref = R, workerpid = WorkerPid}};
+          MRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
+          {ok, Pid, #sherlock_msg{ref = R, workerpid = WorkerPid, monref = MRef}};
         false ->
           retry
       end;
@@ -161,7 +161,7 @@ push_worker(PoolName, WorkerPid, QTab, WTab) ->
   free(PoolName),
   NextId = worker_id_incr(PoolName),
   true = push_wt(WTab, NextId, WorkerPid),
-  case take_from_qt(QTab, NextId, WorkerPid) of
+  case take_from_qt(PoolName, QTab, NextId, WorkerPid) of
     {ok, Dest, Msg} ->
       case take_from_wt(WTab, NextId) of
         {ok, _} ->
@@ -197,7 +197,7 @@ push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
   true = push_qt(QTab, NextId, Timeout, WaitingPid, Secret),
   case take_from_wt(WTab, NextId) of
     {ok, WorkerPid} = Result ->
-      TakeQt = take_from_qt(QTab, NextId, WorkerPid),
+      TakeQt = take_from_qt(PoolName, QTab, NextId, WorkerPid),
       case TakeQt of
         {ok, _, _} ->
           Result;
@@ -212,8 +212,8 @@ push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
 
 wait(Secret, Timeout) ->
   receive
-    #sherlock_msg{ref = Secret, workerpid = Worker} ->
-      {ok, Worker}
+    #sherlock_msg{ref = Secret, workerpid = Worker, monref = MonRef} ->
+      {ok, Worker, MonRef}
   after
     Timeout ->
       {timeout, Timeout}
@@ -262,7 +262,7 @@ replace_worker(PoolName, OldWorker, NewWorker) ->
         [] -> ok;
         [JobID] ->
           QTab = get_wid(PoolName),
-          TakeQt = take_from_qt(QTab, JobID, NewWorker),
+          TakeQt = take_from_qt(PoolName, QTab, JobID, NewWorker),
           case TakeQt of
             {ok, WaitingPid, Message} ->
              case erlang:is_process_alive(WaitingPid) of
