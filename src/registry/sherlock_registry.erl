@@ -50,6 +50,14 @@ register_name(Name, Pid, ReRegFun) ->
             end
     end.
 
+unregister_name(Entity) ->
+  case ets:take(?MODULE, Entity) of
+    [] -> ok;
+    [{_, Mirror}] ->
+      ets:take(?MODULE, Mirror),
+      ok
+  end.
+
 whereis_name(NameOrPid) ->
     case ets:lookup(?MODULE, NameOrPid) of
         [{_, Mirror}|_] -> Mirror;

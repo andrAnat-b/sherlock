@@ -1,5 +1,7 @@
 -module(sherlock).
 
+-include("sherlock_defaults_h.hrl").
+
 -export([start_pool/2]).
 -export([stop_pool/1]).
 
@@ -14,44 +16,47 @@
 
 -export(['_app_name_'/0]).
 
+-export([start/0]).
+
+start()->
+  application:ensure_all_started(?MODULE).
 
 %% API
 start_pool(Name, Opts) ->
-  sherlock_pool:create(Name, Opts).
+  sherlock_sentry_super_sup:start_child(Name, sherlock_pool:fix_cfg(Opts)).
 
 stop_pool(Name) ->
-  sherlock_pool:destroy(Name).
+  sherlock_sentry_super_sup:stop_child(Name).
 
 
 
 checkout(Name) ->
-  sherlock_pool:push_job_to_queue(Name).
+  checkout(Name, ?DEFAULT_TTL).
 
 checkout(Name, Timeout) ->
   case sherlock_pool:push_job_to_queue(Name, Timeout) of
     {ok, WorkerPid} ->
-      watch_me,
-      WorkerPid;
+      Ref = sherlock_mon_wrkr:monitor_me(Name, WorkerPid),
+      {ok, WorkerPid, Ref};
     Reason ->
       {error, {Name, Reason}}
   end.
 
 
 
-checkin(Name, Pid) when is_pid(Pid) ->
-  unwatch_me,
-  sherlock_pool:push_worker(Name, Pid).
+checkin(Name, {WorkerPid, Ref}) when is_pid(WorkerPid) ->
+  sherlock_mon_wrkr:demonitor_me(Name, WorkerPid, Ref).
 
 
 
 transaction(Name, Fun) when is_function(Fun, 1) ->
   case checkout(Name) of
-    {error, _} = Error ->
-      Error;
-    Pid ->
+    {ok, Pid, Refer} = Refer ->
       Result = Fun(Pid),
-      checkin(Name, Pid),
-      Result
+      checkin(Name, {pid, Refer}),
+      Result;
+    {error, _} = Error ->
+      Error
   end.
 
 transaction(Name, Fun, Timeout) when is_function(Fun, 1) ->

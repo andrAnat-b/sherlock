@@ -5,34 +5,37 @@
 %% API
 -export([start_link/1]).
 -export([monitor_me/2]).
--export([demonitor_me/2]).
+-export([monitor_it/3]).
+-export([demonitor_me/3]).
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
 -define(SERVER, ?MODULE).
 
--record(sherlock_mon_wrkr_state, {name, monitors = #{}, objects = #{}}).
+-record(sherlock_mon_wrkr_state, {name, monitors = #{}}).
 -record(monitor, {caller, object}).
--record(demonitor, {caller, object}).
+-record(demonitor, {caller, object, ref}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 monitor_me(Name, WorkerPid) ->
+  monitor_it(Name, self(), WorkerPid).
+monitor_it(Name, Me, WorkerPid) ->
   Me = self(),
   Spread = sherlock_pool:mx_size(Name),
-  Id = erlang:phash([Me, WorkerPid], Spread),
+  Id = erlang:phash([Me, WorkerPid], Spread) -1,
   MonitPid = sherlock_registry:whereis_name({?MODULE, Name, Id}),
   gen_server:call(MonitPid, #monitor{caller = Me, object = WorkerPid}).
 
-demonitor_me(Name, WorkerPid) ->
+demonitor_me(Name, WorkerPid, Ref) ->
   Me = self(),
   Spread = sherlock_pool:mx_size(Name),
-  Id = erlang:phash([Me, WorkerPid], Spread),
+  Id = erlang:phash([Me, WorkerPid], Spread) -1,
   MonitPid = sherlock_registry:whereis_name({?MODULE, Name, Id}),
-  gen_server:cast(MonitPid, #monitor{caller = Me, object = WorkerPid}).
+  gen_server:cast(MonitPid, #demonitor{caller = Me, object = WorkerPid, ref = Ref}).
 
 %% @doc Spawns the server and registers the local name (unique)
 -spec(start_link({any(), any()}) ->
@@ -62,9 +65,9 @@ init({Name, _Id}) ->
                    {noreply, NewState :: #sherlock_mon_wrkr_state{}, timeout() | hibernate} |
                    {stop, Reason :: term(), Reply :: term(), NewState :: #sherlock_mon_wrkr_state{}} |
                    {stop, Reason :: term(), NewState :: #sherlock_mon_wrkr_state{}}).
-handle_call(#monitor{caller = Caller, object = Object}, _From, State = #sherlock_mon_wrkr_state{objects = O, monitors = M}) ->
-  MRef = erlang:monitor(Caller, Object),
-  {reply, MRef, State#sherlock_mon_wrkr_state{monitors = M#{Caller => MRef}, objects = O#{MRef => Object}}};
+handle_call(#monitor{caller = Caller, object = Object}, _From, State = #sherlock_mon_wrkr_state{monitors = M}) ->
+  MRef = erlang:monitor(process, Caller),
+  {reply, MRef, State#sherlock_mon_wrkr_state{monitors = maps:merge(M, #{{Caller, MRef} => Object})}};
 handle_call(_Request, _From, State = #sherlock_mon_wrkr_state{}) ->
   {reply, ok, State}.
 
@@ -74,12 +77,11 @@ handle_call(_Request, _From, State = #sherlock_mon_wrkr_state{}) ->
   {noreply, NewState :: #sherlock_mon_wrkr_state{}} |
   {noreply, NewState :: #sherlock_mon_wrkr_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #sherlock_mon_wrkr_state{}}).
-handle_cast(#demonitor{caller = Caller, object = WorkerPid}, State = #sherlock_mon_wrkr_state{monitors = M, objects = O}) ->
-  {MRef, NewM} = maps:take(Caller, M),
-  erlang:demonitor(MRef, [flash]),
-  {WorkerPid, NewO} = maps:take({MRef, Caller}, O),
+handle_cast(#demonitor{caller = Caller, object = WorkerPid, ref = Ref}, State = #sherlock_mon_wrkr_state{monitors = M}) ->
+  {WorkerPid, NewM} = maps:take({Caller, Ref}, M),
+  erlang:demonitor(Ref, [flush]),
   sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid),
-  {noreply, State#sherlock_mon_wrkr_state{monitors = NewM, objects = NewO}};
+  {noreply, State#sherlock_mon_wrkr_state{monitors = NewM}};
 handle_cast(_Request, State = #sherlock_mon_wrkr_state{}) ->
   {noreply, State}.
 
@@ -89,11 +91,10 @@ handle_cast(_Request, State = #sherlock_mon_wrkr_state{}) ->
   {noreply, NewState :: #sherlock_mon_wrkr_state{}} |
   {noreply, NewState :: #sherlock_mon_wrkr_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #sherlock_mon_wrkr_state{}}).
-handle_info(#'DOWN'{ref = MonitorRef, type = process, id = Caller, reason = _}, State = #sherlock_mon_wrkr_state{monitors = M, objects = O}) ->
-  {MonitorRef, NewM} = maps:take(Caller, M),
-  {WorkerPid,  NewO} = maps:take({MonitorRef, Caller}, O),
+handle_info(#'DOWN'{ref = MonitorRef, type = process, id = Caller, reason = _}, State = #sherlock_mon_wrkr_state{monitors = M}) ->
+  {WorkerPid, NewM} = maps:take({Caller, MonitorRef}, M),
   sherlock_pool:push_worker(State#sherlock_mon_wrkr_state.name, WorkerPid),
-  {noreply, State#sherlock_mon_wrkr_state{monitors = NewM, objects = NewO}};
+  {noreply, State#sherlock_mon_wrkr_state{monitors = NewM}};
 handle_info(_Info, State = #sherlock_mon_wrkr_state{}) ->
   {noreply, State}.
 

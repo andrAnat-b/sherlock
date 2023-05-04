@@ -2,7 +2,6 @@
 
 -behaviour(supervisor).
 
-start_pool()
 
 -export([start_link/0, init/1]).
 
@@ -30,13 +29,13 @@ init([]) ->
   },
 
   Registry = #{
-             id       => sherlock_registry,
-             restart  => permanent,
-             shutdown => 2000,
-             start    => {sherlock_registry, start_link, []},
-             type     => worker,
-             modules  => dynamic
-           },
+    id       => sherlock_registry,
+    restart  => permanent,
+    shutdown => 2000,
+    start    => {sherlock_registry, start_link, []},
+    type     => worker,
+    modules  => dynamic
+  },
 
 
   {ok, {SupFlags, [Sentry, Registry]}}.

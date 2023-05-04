@@ -5,6 +5,7 @@
 %% API
 -export([start_link/0]).
 -export([start_child/2]).
+-export([stop_child/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -25,6 +26,9 @@ start_child(Name, Args) ->
            modules => ['sherlock_sentry_pool_sup']},
   supervisor:start_child(?MODULE, Spec).
 
+stop_child(Name) ->
+  supervisor:terminate_child(?SERVER, {sherlock_sentry_pool_sup, Name}),
+  sherlock_pool:destroy(Name).
 
 %% @doc Starts the supervisor
 -spec(start_link() -> {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
