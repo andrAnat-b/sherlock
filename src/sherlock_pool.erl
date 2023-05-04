@@ -30,9 +30,9 @@
   mx_size = 1,
   mn_size = 1,
   qt,
-  q_id = -1,
+  q_id = 1,
   wt,
-  w_id = -1,
+  w_id = 1,
   mfa = {sherlock_simple_worker, start_link,[0]}
 }).
 
@@ -116,7 +116,7 @@ take_from_qt(Qtab, Id, WorkerPid) ->
   Cts = cts(),
   TakeQt = ets:take(Qtab, Id),
   case TakeQt of
-    [#sherlock_job{ttl = Sts}] when (Sts < Cts) ->
+    [#sherlock_job{ttl = Sts}] when (Sts < Cts) and (Sts =/= infinity) ->
       retry;
     [#sherlock_job{ref = R, pid = Pid}] ->
       case is_process_alive(Pid) of

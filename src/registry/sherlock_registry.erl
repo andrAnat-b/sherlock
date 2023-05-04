@@ -43,7 +43,7 @@ register_name(Name, Pid, ReRegFun) ->
             case ReRegFun(Name, Pid, AnotherPid) of
                 none -> no;
                 NewPid when (NewPid == Pid) ->
-                    [ets:delete(?MODULE, Tup) || Tup <- [{Name, AnotherPid},{AnotherPid, Name}]],
+                    [ets:delete_object(?MODULE, Tup) || Tup <- [{Name, AnotherPid},{AnotherPid, Name}]],
                     register_name(Name, NewPid, ReRegFun);
                 _ ->
                     no
