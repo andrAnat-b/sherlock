@@ -189,7 +189,7 @@ push_job_to_queue(PoolName, Timeout) ->
     {ok, _WorkerPid} = Result->
       Result;
     wait ->
-      wait(Secret, Timeout, PoolName)
+      wait(Secret, Timeout+5)
   end.
 
 push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
@@ -210,10 +210,9 @@ push_job_to_queue(PoolName, Timeout, QTab, WTab, WaitingPid, Secret) ->
       wait
   end.
 
-wait(Secret, Timeout, PoolName) ->
+wait(Secret, Timeout) ->
   receive
     #sherlock_msg{ref = Secret, workerpid = Worker} ->
-      _ = wait(Secret, 0, PoolName),
       {ok, Worker}
   after
     Timeout ->
@@ -266,7 +265,12 @@ replace_worker(PoolName, OldWorker, NewWorker) ->
           TakeQt = take_from_qt(QTab, JobID, NewWorker),
           case TakeQt of
             {ok, WaitingPid, Message} ->
-              WaitingPid ! Message;
+             case erlang:is_process_alive(WaitingPid) of
+               true ->
+                 WaitingPid ! Message;
+               _ ->
+                 push_worker(PoolName, NewWorker)
+             end;
             retry ->
               push_worker(PoolName, NewWorker);
             gone ->
