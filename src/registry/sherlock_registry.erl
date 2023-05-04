@@ -60,6 +60,13 @@ unregister_name(Entity) ->
 
 whereis_name(NameOrPid) ->
     case ets:lookup(?MODULE, NameOrPid) of
+        [{_, Mirror}|_] when is_pid(Mirror)->
+          case is_process_alive(Mirror) of
+            true -> Mirror;
+            _ ->
+              unregister_name(NameOrPid),
+              undefined
+          end;
         [{_, Mirror}|_] -> Mirror;
         _ -> undefined
     end.
