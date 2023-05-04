@@ -10,6 +10,7 @@
          code_change/3]).
 
 -define(SERVER, ?MODULE).
+-define(REFRESH, 5000).
 
 -record(sherlock_pool_holder_state, {
   monitors = #{},
@@ -19,7 +20,8 @@
   name,
   args,
   last_wid = 1,
-  last_qid = 1
+  last_qid = 1,
+  mstime = ?REFRESH
 }).
 
 -record(resize, {secret}).
@@ -54,15 +56,17 @@ init({Name, Args}) ->
   Mirrors = maps:from_list([{WorkerPid, MRef} || {MRef, WorkerPid} <- WorkersWithRefs]),
   Workers = [WorkerPid || {_ , WorkerPid} <- WorkersWithRefs],
   Secret = erlang:make_ref(),
-  resize(Secret),
+  Refresh = maps:get(refresh, Args, ?REFRESH),
   State = #sherlock_pool_holder_state{
     secret = Secret,
     monitors = Monitors,
     mirror = Mirrors,
     workers = Workers,
     name = Name,
-    args = Args
+    args = Args,
+    mstime = Refresh
   },
+  resize(Secret, Refresh),
   {ok, State}.
 
 %% @private
@@ -93,14 +97,14 @@ handle_cast(_Request, State = #sherlock_pool_holder_state{}) ->
   {noreply, NewState :: #sherlock_pool_holder_state{}} |
   {noreply, NewState :: #sherlock_pool_holder_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #sherlock_pool_holder_state{}}).
-handle_info(#resize{secret = S}, State = #sherlock_pool_holder_state{secret = S, name = Name}) ->
+handle_info(#resize{secret = S}, State = #sherlock_pool_holder_state{secret = S, name = Name, mstime = MSTime}) ->
   #sherlock_pool_holder_state{workers = Workers} = State,
   ActualSizePrev = erlang:length(Workers),
   sherlock_pool:update_csize(Name, ActualSizePrev),
   Direction = pool_resize_direction(Name, ActualSizePrev),
   {AdditionalWorkersPid, NewState} = make_resize(Direction, State, []),
   [sherlock_pool:push_worker(Name, Pid) || Pid <- AdditionalWorkersPid],
-  resize(S),
+  resize(S, MSTime),
   {noreply, NewState};
 handle_info(#'DOWN'{ref = MonRef, id = OldWorker}, State = #sherlock_pool_holder_state{name = Name, workers = Work}) ->
   sherlock_pool:occup(Name),
@@ -123,7 +127,6 @@ handle_info(_Info, State = #sherlock_pool_holder_state{}) ->
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
                 State :: #sherlock_pool_holder_state{}) -> term()).
 terminate(_Reason, _State = #sherlock_pool_holder_state{}) ->
-  lager:debug("Terminated ~p", [_Reason]),
   ok.
 
 %% @private
@@ -152,8 +155,8 @@ do_init_start(M, F, A) ->
       throw({?MODULE, {?FUNCTION_NAME, _Reason}, {M, F, A}})
   end.
 
-resize(Secret) ->
-  erlang:send_after(50, self(), #resize{secret = Secret}).
+resize(Secret, MSTime) ->
+  erlang:send_after(MSTime, self(), #resize{secret = Secret}).
 
 pool_resize_direction(Name, CurSize) ->
   Max = sherlock_pool:mx_size(Name), % 16
@@ -180,10 +183,10 @@ make_resize({enlarge, N}, State, Acc) ->
     NewMon = maps:merge(Mon, #{MRef => WorkerPid}),
     NewMir = maps:merge(Mir, #{WorkerPid => MRef}),
     NewState = State#sherlock_pool_holder_state{workers = NewWrkL, monitors = NewMon, mirror = NewMir},
-    {[WorkerPid|Acc], make_resize({enlarge, N-1}, NewState, Acc)}
+    make_resize({enlarge, N-1}, NewState, [WorkerPid|Acc])
   catch
     _ ->
-      {Acc, make_resize({enlarge, N-1}, State, Acc)}
+      make_resize({enlarge, N-1}, State, Acc)
   end;
 make_resize({shrink, 0}, State, Acc) ->
   {Acc, State};
