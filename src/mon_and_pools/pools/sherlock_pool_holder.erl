@@ -123,6 +123,7 @@ handle_info(_Info, State = #sherlock_pool_holder_state{}) ->
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
                 State :: #sherlock_pool_holder_state{}) -> term()).
 terminate(_Reason, _State = #sherlock_pool_holder_state{}) ->
+  lager:debug("Terminated ~p", [_Reason]),
   ok.
 
 %% @private
