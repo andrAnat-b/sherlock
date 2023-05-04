@@ -40,11 +40,13 @@ init({Name, Args}) ->
                intensity => MaxRestarts,
                period => MaxSecondsBetweenRestarts},
 
+  TabRef = sherlock_pool:m_tab(Name),
+
   MaxSize = maps:get(max_size, Args),
 
   IDList = lists:seq(0, MaxSize -1),
 
-  Children = [child_spec(Name, Id) || Id <- IDList],
+  Children = [child_spec(Name, Id, TabRef) || Id <- IDList],
 
   {ok, {SupFlags, Children}}.
 
@@ -52,9 +54,9 @@ init({Name, Args}) ->
 %%% Internal functions
 %%%===================================================================
 
-child_spec(Name, Id) ->
+child_spec(Name, Id, TabRef) ->
   #{id => {sherlock_mon_wrkr, Id},
-    start => {sherlock_mon_wrkr, start_link, [{Name, Id}]},
+    start => {sherlock_mon_wrkr, start_link, [{Name, Id, TabRef}]},
     restart => permanent,
     shutdown => 2000,
     type => worker,
