@@ -129,7 +129,7 @@ take_from_qt(PoolName, Qtab, Id, WorkerPid) ->
     [#sherlock_job{ref = R, pid = Pid}] ->
       case is_process_alive(Pid) of
         true ->
-          MRef = sherlock_mon_wrkr:monitor_me(PoolName, WorkerPid),
+          MRef = sherlock_mon_wrkr:monitor_it(PoolName, Pid, WorkerPid),
           {ok, Pid, #sherlock_msg{ref = R, workerpid = WorkerPid, monref = MRef}};
         false ->
           retry
