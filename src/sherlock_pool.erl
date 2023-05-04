@@ -59,7 +59,7 @@
 -record(sherlock_msg, {ref, workerpid}).
 
 ttl(infinity = I) -> I;
-ttl(Int) when is_integer(Int) and (Int >= 0) -> erlang:system_time(millisecond) + Int.
+ttl(Int) when is_integer(Int) and (Int >= 0) -> (erlang:system_time(millisecond) + Int) - 5.
 
 cts() ->
   ttl(0).
