@@ -1,10 +1,13 @@
 -module(sherlock_pool).
 
 -include("sherlock_defaults_h.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
+
 %% API
 -export([push_job_to_queue/2]).
 -export([fix_cfg/1]).
 %% Internal API
+-export([replace_worker/3]).
 -export([init/0]).
 -export([create/2]).
 -export([destroy/1]).
@@ -238,3 +241,39 @@ free(Name, N) ->
 
 get_occupied(Name) ->
   ets:lookup_element(?MODULE, Name, #?MODULE.occupation).
+
+replace_worker(PoolName, OldWorker, NewWorker) ->
+  WTab = get_wid(PoolName),
+  MatchSpecReplace = ets:fun2ms(fun
+                           (#sherlock_wrk{w_id = JobID, pid = Worker}) when Worker == OldWorker ->
+                             #sherlock_wrk{w_id = JobID, pid = NewWorker}
+                         end),
+  Success = (1 =:= ets:select_replace(WTab, MatchSpecReplace)),
+  if
+    Success ->
+      MatchSpec = ets:fun2ms(fun
+                              (#sherlock_wrk{w_id = JobID, pid = Worker}) when Worker == OldWorker ->
+                                JobID
+                            end),
+      case ets:select(WTab, MatchSpec) of
+        [] -> ok;
+        [JobID] ->
+          QTab = get_wid(PoolName),
+          TakeQt = take_from_qt(QTab, JobID, NewWorker),
+          case TakeQt of
+            {ok, WaitingPid, Message} ->
+              WaitingPid ! Message;
+            retry ->
+              push_worker(PoolName, NewWorker);
+            gone ->
+              push_worker(PoolName, NewWorker)
+          end
+      end;
+    true ->
+      MatchSpecDelete = ets:fun2ms(fun
+                                      (#sherlock_wrk{w_id = _, pid = Worker}) when Worker == OldWorker ->
+                                        true
+                                    end),
+      ets:select_delete(WTab, MatchSpecDelete),
+      push_worker(PoolName, NewWorker)
+  end.
