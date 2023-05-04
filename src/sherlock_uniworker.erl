@@ -1,18 +1,20 @@
--module(sherlock_test_worker).
+-module(sherlock_uniworker).
 
 -behavior(sherlock_worker).
 -behaviour(gen_server).
 
 %% API
 -export([start_link/1, start_worker/1]).
-
+-export([sync/2]).
+-export([async/2]).
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
 -define(SERVER, ?MODULE).
 
--record(sherlock_test_worker_state, {}).
+-record(job, {fn = fun(State) -> State end}).
+-record(sherlock_test_worker_state, {state = 0}).
 
 %%%===================================================================
 %%% API
@@ -20,6 +22,12 @@
 
 start_worker(Args) ->
   start_link(Args).
+
+sync(WorkerPid, Job) ->
+  gen_server:call(WorkerPid, #job{fn = Job}).
+
+async(WorkerPid, Job) ->
+  gen_server:cast(WorkerPid, #job{fn = Job}).
 
 %% @doc Spawns the server and registers the local name (unique)
 -spec(start_link(Args::any()) ->
@@ -36,8 +44,9 @@ start_link(Args) ->
 -spec(init(Args :: term()) ->
   {ok, State :: #sherlock_test_worker_state{}} | {ok, State :: #sherlock_test_worker_state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init(_Args) ->
-  {ok, #sherlock_test_worker_state{}}.
+init(Args) ->
+  State = maps:get(state, Args),
+  {ok, #sherlock_test_worker_state{state = State}}.
 
 %% @private
 %% @doc Handling call messages
@@ -49,8 +58,11 @@ init(_Args) ->
                    {noreply, NewState :: #sherlock_test_worker_state{}, timeout() | hibernate} |
                    {stop, Reason :: term(), Reply :: term(), NewState :: #sherlock_test_worker_state{}} |
                    {stop, Reason :: term(), NewState :: #sherlock_test_worker_state{}}).
-handle_call(ping, _From, State = #sherlock_test_worker_state{}) ->
-  {reply, pong, State}.
+handle_call(#job{fn = Function}, _From, State = #sherlock_test_worker_state{state = S}) ->
+  Result = Function(S),
+  {reply, Result, State#sherlock_test_worker_state{state = Result}};
+handle_call(_Request, _From, State = #sherlock_test_worker_state{}) ->
+  {reply, ok, State#sherlock_test_worker_state{}}.
 
 %% @private
 %% @doc Handling cast messages
@@ -58,8 +70,10 @@ handle_call(ping, _From, State = #sherlock_test_worker_state{}) ->
   {noreply, NewState :: #sherlock_test_worker_state{}} |
   {noreply, NewState :: #sherlock_test_worker_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #sherlock_test_worker_state{}}).
+handle_cast(#job{fn = Function}, State = #sherlock_test_worker_state{state = S}) ->
+  {noreply, State#sherlock_test_worker_state{state = Function(S)}};
 handle_cast(_Request, State = #sherlock_test_worker_state{}) ->
-  {noreply, State}.
+  {noreply, State#sherlock_test_worker_state{}}.
 
 %% @private
 %% @doc Handling all non call/cast messages

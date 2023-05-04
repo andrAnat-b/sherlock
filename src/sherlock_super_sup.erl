@@ -25,7 +25,7 @@ start_link() ->
 start_pool_workers(Name, Args) ->
   Spec = #{id => Name,
     start => {sherlock_pool_sup, start_link, [Name, Args]},
-    restart => permanent,
+    restart => transient,
     shutdown => 2000,
     type => supervisor,
     modules => [sherlock_pool_sup]},

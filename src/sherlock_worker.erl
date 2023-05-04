@@ -3,32 +3,27 @@
 -callback start_worker(Args :: term()) -> Pid :: pid().
 
 %% API
--export([start_worker/4]).
+-export([start_worker/3]).
 
 
-start_worker(Name, Id, Module, Args) ->
+start_worker(Name, Module, Args) ->
   Response = Module:start_worker(Args),
   case Response of
     {ok, Pid} ->
-      {W, BindID}  = watch_fun(Name, Id),
-      UW = unwatch_fun(Name, Id, BindID),
-      watson:watch_random(Name, {W, UW}, Pid),
+      WatchFun  = watch_fun(Name),
+      UWatchFun = unwatch_fun(Name),
+      watson:watch_random(Name, {WatchFun, UWatchFun}, Pid),
       Response;
     Other -> Other
   end.
 
-watch_fun(Name, _Id) ->
-  BindID = sherlock_pool:get_free_bind_id_idx(Name),
+watch_fun(Name) ->
   Fun = fun(Pid) ->
-    io:format("===========================================~n"),
-    io:format("Name ~p Pid ~p BindId ~p~n", [Name, Pid, BindID]),
-    io:format("===========================================~n"),
-    sherlock_pool:add_worker(Name, Pid, BindID)
+    sherlock_pool:join_pool(Name, Pid)
   end,
-  {Fun, BindID}.
+  Fun.
 
-unwatch_fun(Name, _Id, BindID) ->
+unwatch_fun(Name) ->
   fun(Pid) ->
-    sherlock_pool:free_bind_id_idx(Name, BindID),
-    sherlock_pool:sub_worker(Name, Pid, BindID)
+    sherlock_pool:leave_pool(Name, Pid)
   end.

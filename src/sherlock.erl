@@ -25,17 +25,14 @@ stop_pool(Name) ->
 
 
 checkout(Name) ->
-  sherlock_pool:usage_incr(Name),
   sherlock_pool:lease_worker(Name).
 
 checkout(Name, Timeout) ->
-  sherlock_pool:usage_incr(Name),
   sherlock_pool:lease_worker(Name, Timeout).
 
 
 
 checkin(Name, Pid) ->
-  sherlock_pool:usage_decr(Name),
   sherlock_pool:release_worker(Name, Pid).
 
 
