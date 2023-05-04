@@ -40,11 +40,11 @@ init({Name, Args}) ->
                intensity => MaxRestarts,
                period => MaxSecondsBetweenRestarts},
 
-  TabRef = sherlock_pool:m_tab(Name),
+  TabRef = sherlock_config:m_tab(Name),
 
   MaxSize = maps:get(max_size, Args),
 
-  IDList = lists:seq(0, MaxSize -1),
+  IDList = lists:seq(0, MaxSize * 2 -1),
 
   Children = [child_spec(Name, Id, TabRef) || Id <- IDList],
 
