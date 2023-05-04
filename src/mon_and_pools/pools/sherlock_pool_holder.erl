@@ -11,7 +11,16 @@
 
 -define(SERVER, ?MODULE).
 
--record(sherlock_pool_holder_state, {monitors = #{}, workers = [], mirror = #{}, secret, name, args}).
+-record(sherlock_pool_holder_state, {
+  monitors = #{},
+  workers = [],
+  mirror = #{},
+  secret,
+  name,
+  args,
+  last_wid = 0,
+  last_qid = 0
+}).
 
 -record(resize, {secret}).
 
@@ -44,8 +53,20 @@ init({Name, Args}) ->
   Mirrors = maps:from_list([{WorkerPid, MRef} || {MRef, WorkerPid} <- WorkersWithRefs]),
   Workers = [WorkerPid || {_ , WorkerPid} <- WorkersWithRefs],
   Secret = erlang:make_ref(),
-%%  resize(Secret),
-  {ok, #sherlock_pool_holder_state{secret = Secret, monitors = Monitors, mirror = Mirrors, workers = Workers, name = Name, args = Args}}.
+  LastQid =  sherlock_pool:get_qid(Name),
+  LastWid =  sherlock_pool:get_wid(Name),
+  resize(Secret),
+  State = #sherlock_pool_holder_state{
+    secret = Secret,
+    monitors = Monitors,
+    mirror = Mirrors,
+    workers = Workers,
+    name = Name,
+    args = Args,
+    last_qid = LastQid,
+    last_wid = LastWid
+  },
+  {ok, State}.
 
 %% @private
 %% @doc Handling call messages
@@ -75,22 +96,14 @@ handle_cast(_Request, State = #sherlock_pool_holder_state{}) ->
   {noreply, NewState :: #sherlock_pool_holder_state{}} |
   {noreply, NewState :: #sherlock_pool_holder_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #sherlock_pool_holder_state{}}).
-handle_info(#resize{secret = S}, State = #sherlock_pool_holder_state{secret = S, workers = W, name = Name, monitors = Mon, mirror = Mir, args = Args}) ->
-  {NewMon, NewMir, NewW} = case do_resize_pool(Name, W, Args) of
-    {monitor, NewWorkers} ->
-      [sherlock_pool:push_worker(Name, WorkerPid) || {_ , WorkerPid} <- NewWorkers],
-      Monitors = maps:from_list(NewWorkers),
-      Mirrors = maps:from_list([{WorkerPid, MRef} || {MRef, WorkerPid} <- NewWorkers]),
-      Workers = [WorkerPid || {_ , WorkerPid} <- NewWorkers],
-      {maps:merge(Mon, Monitors), maps:merge(Mir, Mirrors), W ++ Workers};
-    {demonitor, [StopMe]} ->
-      ProcRef = maps:get(StopMe, Mir),
-      erlang:demonitor(ProcRef, [flush]),
-      erlang:exit(StopMe, normal),
-      {maps:without([ProcRef], Mon), maps:without([StopMe], Mon), W -- [StopMe]}
-  end,
+handle_info(#resize{secret = S}, State = #sherlock_pool_holder_state{secret = S, name = Name}) ->
+  #sherlock_pool_holder_state{workers = Workers, last_qid = Q, last_wid = W} = State,
+  ActualSizePrev = erlang:length(Workers),
+  sherlock_pool:update_csize(Name, ActualSizePrev),
+  Direction = pool_resize_direction(Name, ActualSizePrev, W, Q),
+  NewState = make_resize(Direction, State),
   resize(S),
-  {noreply, State#sherlock_pool_holder_state{monitors = NewMon, mirror = NewMir, workers = NewW}};
+  {noreply, State#sherlock_pool_holder_state{}};
 handle_info(#'DOWN'{}, State = #sherlock_pool_holder_state{}) ->
   {noreply, State};
 handle_info(_Info, State = #sherlock_pool_holder_state{}) ->
@@ -133,45 +146,33 @@ do_init_start(M, F, A) ->
   end.
 
 resize(Secret) ->
-  erlang:send_after(10000, self(), #resize{secret = Secret}).
+  erlang:send_after(500, self(), #resize{secret = Secret}).
 
-do_resize_pool(Name, W, Args) ->
-  ActualSize = erlang:length(W),
-  sherlock_pool:update_csize(Name, ActualSize),
+pool_resize_direction(Name, ActualSizePrev, LWid, LQid) ->
   QID = sherlock_pool:get_qid(Name),
   WID = sherlock_pool:get_wid(Name),
-  case QID > WID of
-    true ->
-      MaxSize = sherlock_pool:mx_size(Name),
-      NewWorkers = do_enlarge_pool(Name, min(MaxSize - ActualSize, QID - WID), Args),
-      {monitor, NewWorkers};
+  RQid = get_real_val(QID, LQid),
+  RWid = get_real_val(WID, LWid),
+  case RQid - RWid of
+    More when More > 0 ->
+      Max = sherlock_pool:mx_size(Name),
+      Enlarge = min(More, (Max - ActualSizePrev)),
+      {enlarge, Enlarge};
+    Less when Less < 0 ->
+      {shrink, 1};
     _ ->
-      {monitor, []}
-%%      case detail_check(QID, WID, ActualSize, Args) of
-%%        stable -> {monitor, []};
-%%        reduce ->
-%%          {ok, WorkerToStop} = sherlock_pool:push_job_to_queue(Name, infinity),
-%%          {demonitor, [WorkerToStop]}
-%%      end
+      {enlarge, 0}
   end.
 
-do_enlarge_pool(_Name, 0, _Args) ->
-  [];
-do_enlarge_pool(Name, AdditionalSize, Args) ->
-  do_enlarge_pool(Name, AdditionalSize, Args ,[]).
+get_real_val(Cur, Prev) ->
+  if
+    Cur > Prev -> Cur;
+    true -> Cur +?CTH
+  end.
 
-do_enlarge_pool(_Name, AdditionalSize, _Args, Acc) when AdditionalSize =< 0 -> Acc;
-do_enlarge_pool(Name, AdditionalSize, Args, Acc) ->
-  try
-    {M, F, A} = maps:get(mfa, Args),
-    Res = do_init_start(M, F, A),
-    do_enlarge_pool(Name, AdditionalSize -1, Args, [Res|Acc])
-  catch
-      _  ->
-        do_enlarge_pool(Name, AdditionalSize - 1, Args, Acc)
-  end .
-%%
-%%detail_check(SameSize, SameSize, _ActualSize, _Args) ->
-%%  stable;
-%%detail_check(_QID, _WID, _ActualSize, _Args) ->
-%%  reduce.
+make_resize({enlarge, 0}, State) ->
+  State;
+make_resize({enlarge, _N}, State) ->
+  State;
+make_resize({shrink, _N}, State) ->
+  State.

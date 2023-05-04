@@ -65,9 +65,10 @@ init({Name, _Id}) ->
                    {noreply, NewState :: #sherlock_mon_wrkr_state{}, timeout() | hibernate} |
                    {stop, Reason :: term(), Reply :: term(), NewState :: #sherlock_mon_wrkr_state{}} |
                    {stop, Reason :: term(), NewState :: #sherlock_mon_wrkr_state{}}).
-handle_call(#monitor{caller = Caller, object = Object}, _From, State = #sherlock_mon_wrkr_state{monitors = M}) ->
+handle_call(#monitor{caller = Caller, object = Object}, From, State = #sherlock_mon_wrkr_state{monitors = M}) ->
   MRef = erlang:monitor(process, Caller),
-  {reply, MRef, State#sherlock_mon_wrkr_state{monitors = maps:merge(M, #{{Caller, MRef} => Object})}};
+  gen_server:reply(From , MRef),
+  {noreply, State#sherlock_mon_wrkr_state{monitors = maps:merge(M, #{{Caller, MRef} => Object})}};
 handle_call(_Request, _From, State = #sherlock_mon_wrkr_state{}) ->
   {reply, ok, State}.
 
