@@ -61,12 +61,12 @@ transaction(Name, Fun) when is_function(Fun, 1) ->
 
 transaction(Name, Fun, Timeout) when is_function(Fun, 1) ->
   case checkout(Name, Timeout) of
-    {error, {timeout, TimedOut}} ->
-      {timeout, {Name, TimedOut}};
-    Pid ->
+    {ok, Pid, Refer} ->
       Result = Fun(Pid),
-      checkin(Name, Pid),
-      Result
+      checkin(Name, {Pid, Refer}),
+      Result;
+    {error, _} = Error ->
+      Error
   end.
 
 
