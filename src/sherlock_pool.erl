@@ -64,11 +64,11 @@ cts() ->
   ttl(0).
 
 init() ->
-  Options = [named_table, set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #?MODULE.name}],
+  Options = [named_table, ordered_set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #?MODULE.name}],
   ets:new(?MODULE, Options).
 
 init_main() ->
-  Options = [set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #sherlock_job.id}],
+  Options = [ordered_set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #sherlock_job.id}],
   ets:new(?MODULE, Options).
 
 init_mt() ->
