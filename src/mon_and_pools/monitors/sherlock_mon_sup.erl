@@ -44,7 +44,7 @@ init({Name, Args}) ->
 
   MaxSize = maps:get(max_size, Args),
 
-  IDList = lists:seq(0, erlang:min(MaxSize -1, sherlock_util:get_schedulers_online() -1)),
+  IDList = lists:seq(0, sherlock_util:get_schedulers_online() -1),
 
   Children = [child_spec(Name, Id, TabRef) || Id <- IDList],
 
