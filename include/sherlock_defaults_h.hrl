@@ -4,6 +4,7 @@
   -record('DOWN',{ref, type, id, reason}).
 %%  -define(CTH, (1 bsl 64) -1).
   -define(CTH, 18446744073709551615).
+  -define(GAP, 5).
   -define(DEFAULT_TTL, 5000).
 
 -else.

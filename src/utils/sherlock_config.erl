@@ -1,14 +1,19 @@
 -module(sherlock_config).
 
 %% API
--export([main_tab/1]).
+-export([q_tab/1]).
+-export([w_tab/1]).
 -export([m_tab/1]).
 -export([mx_size/1]).
 
 
 
-main_tab(PoolName) ->
-  TabRef = sherlock_pool:main_tab(PoolName),
+q_tab(PoolName) ->
+  TabRef = sherlock_pool:q_tab(PoolName),
+  TabRef.
+
+w_tab(PoolName) ->
+  TabRef = sherlock_pool:w_tab(PoolName),
   TabRef.
 
 m_tab(PoolName) ->
