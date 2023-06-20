@@ -35,6 +35,8 @@
 
 -export([push_worker/3]).
 
+-define(GAP, 5).
+
 -record(?MODULE, {
   name           ,
   c_size = 0     ,
@@ -58,10 +60,10 @@
 -record(sherlock_msg, {ref, workerpid, monref}).
 
 ttl(infinity = I) -> I;
-ttl(Int) when is_integer(Int) and (Int >= 0) -> (erlang:system_time(millisecond) + Int) - 5.
+ttl(Int) when is_integer(Int) and (Int >= 0) -> (erlang:system_time(millisecond) + Int) - ?GAP.
 
 cts() ->
-  ttl(0).
+  ttl(?GAP).
 
 init() ->
   Options = [named_table, set, public, {read_concurrency, true}, {write_concurrency, true}, {keypos, #?MODULE.name}],
@@ -176,7 +178,7 @@ push_job_to_queue(PoolName, Timeout) ->
         catch ets:update_counter(Main, WaitId, {#sherlock_job.cnt, 1}),
             ok
       end,
-      wait(Secret, Timeout+5, Fun)
+      wait(Secret, Timeout+?GAP, Fun)
   end.
 
 push_job_to_queue(PoolName, Timeout, Main, WaitingPid, Secret) ->
