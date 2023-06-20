@@ -21,4 +21,5 @@ reconfig() ->
   ,
   AST = merl:qquote(1, ConstHeader, []),
   code:unstick_mod(sherlock_config),
-  merl:compile_and_load(AST).
+  merl:compile_and_load(AST),
+  code:stick_mod(sherlock_config).
