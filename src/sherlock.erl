@@ -12,8 +12,12 @@
 -export([transaction/2]).
 -export([transaction/3]).
 
+-export([start_balancer/2]).
+
 -export([get_pool_metrics/0]).
 -export([get_pool_info/1]).
+
+-export([call_all_in_pool/2]).
 
 -export(['_app_name_'/0]).
 
@@ -27,7 +31,7 @@ start_pool(Name, Opts) ->
   case ?MODULE:get_pool_info(Name) of
     {error, undefined} ->
       StartPoolRes = sherlock_sentry_super_sup:start_child(Name, sherlock_pool:fix_cfg(Opts)),
-      sherlock_meta:reconfig(),
+%%      sherlock_meta:reconfig(),
       StartPoolRes;
     _ ->
       {error, {?MODULE, {pool_already_started, Name}}}
@@ -35,7 +39,7 @@ start_pool(Name, Opts) ->
 
 stop_pool(Name) ->
   StopPoolRes = sherlock_sentry_super_sup:stop_child(Name),
-  sherlock_meta:reconfig(),
+%%  sherlock_meta:reconfig(),
   StopPoolRes.
 
 
@@ -89,3 +93,14 @@ get_pool_metrics() ->
 
 get_pool_info(Poolname) ->
   sherlock_pool:get_info(Poolname).
+
+start_balancer(Name, Opts) ->
+  erlang:error(not_implemented).
+
+call_all_in_pool(PoolName, CommandFun) ->
+  case sherlock_pool_holder:get_all_workers(PoolName) of
+    [_|_] = List ->
+      [CommandFun(WPid) || WPid <- List];
+    Error ->
+      {error, Error}
+  end.

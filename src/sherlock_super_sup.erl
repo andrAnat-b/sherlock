@@ -37,8 +37,17 @@ init([]) ->
     modules  => dynamic
   },
 
+  Balancer = #{
+    id       => sherlock_balancer,
+    restart  => permanent,
+    shutdown => 2000,
+    start    => {sherlock_registry, start_link, []},
+    type     => worker,
+    modules  => dynamic
+  },
 
-  {ok, {SupFlags, [Sentry, Registry]}}.
+
+  {ok, {SupFlags, [Sentry, Registry, Balancer]}}.
 
 %%%===================================================================
 %%% Internal functions

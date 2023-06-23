@@ -3,6 +3,8 @@
 -behaviour(gen_server).
 -include("sherlock_defaults_h.hrl").
 %% API
+-export([get_all_workers/1]).
+-export([call/2]).
 -export([start_link/1]).
 
 %% gen_server callbacks
@@ -29,6 +31,12 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
+get_all_workers(Name) ->
+  call(Name, ?FUNCTION_NAME).
+
+call(Name, Comamnd) ->
+  gen_server:call(sherlock_registry:via({?SERVER, Name}), Comamnd).
+
 
 %% @doc Spawns the server and registers the local name (unique)
 -spec(start_link({any(), any()}) ->
@@ -79,6 +87,8 @@ init({Name, Args}) ->
                    {noreply, NewState :: #sherlock_pool_holder_state{}, timeout() | hibernate} |
                    {stop, Reason :: term(), Reply :: term(), NewState :: #sherlock_pool_holder_state{}} |
                    {stop, Reason :: term(), NewState :: #sherlock_pool_holder_state{}}).
+handle_call(get_all_workers, _From, State = #sherlock_pool_holder_state{}) ->
+  {reply, State#sherlock_pool_holder_state.workers, State};
 handle_call(_Request, _From, State = #sherlock_pool_holder_state{}) ->
   {reply, ok, State}.
 
