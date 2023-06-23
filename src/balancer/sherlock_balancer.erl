@@ -14,6 +14,11 @@
 -define(K_ALG, 2).
 -define(K_CUR, 2).
 -define(K_MAX, 2).
+
+-define(E_KEY,    1).
+-define(E_ENTITY, 2).
+-define(E_USAGE,  3).
+
 %% API
 -export([init/0]).
 -export([new/2]).
@@ -21,7 +26,11 @@
 
 -export([add_to_balancer/2]).
 -export([rem_from_balancer/1]).
--export([balance/1]).
+
+-export([get_entity/1]).
+-export([get_entity/2]).
+
+-export([return_entity/1]).
 
 -export([info/0]).
 -export([info/1]).
@@ -35,7 +44,7 @@ new(Name, Opts) ->
 
 add_to_balancer(Name, Entity) ->
   NewEnt = ets:update_counter(?MODULE, Name, {?K_MAX, 1}),
-  ets:insert(?MODULE, {{Name, NewEnt}, Entity}).
+  ets:insert(?MODULE, {{Name, NewEnt}, Entity, 0}).
 
 rem_from_balancer(Name) ->
   NewEnt = ets:update_counter(?MODULE, Name, {?K_MAX, -1}),
@@ -81,16 +90,25 @@ info(Name) ->
       ]
   end.
 
-balance(Name) ->
+get_entity(Name) ->
+  get_entity(Name, undefined).
+
+get_entity(Name, Basis) ->
   Treshold = ets:update_counter(?MODULE, Name, {?K_MAX, 0}),
   [Next, ALG] = ets:update_counter(?MODULE, Name, [{?K_CUR, 1, Treshold, 0}, {?K_ALG, 0}]),
   AlgName = id_to_alg_name(ALG),
-  BalancedID = do_calc_id(Name, AlgName, Treshold, Next),
-  [{_, Entity}] = ets:lookup(?MODULE, {Name, BalancedID}),
-  Entity.
+  BalancedID = do_calc_id(Name, AlgName, Treshold, Next, Basis),
+  ets:update_counter(?MODULE, {Name, BalancedID}, {?E_USAGE, 1}),
+  [{Key, Entity, _}] = ets:lookup(?MODULE, {Name, BalancedID}),
+  {Key, Entity}.
 
 
-do_calc_id(_Name, ?N_ROUND_ROBIN, _Treshold, Next)  ->  Next;
-do_calc_id(_Name, ?N_RANDOM_ROBIN, Treshold, _Next) ->  erlang:round(rand:uniform(Treshold));
-do_calc_id(_Name, ?N_HASH_ROBIN,   Treshold, Next)  ->  erlang:phash2({Treshold, Next}, Treshold);
-do_calc_id(Name, ?N_LEAST_ROBIN,  Treshold, Next)  ->  erlang:error(not_implemented).
+do_calc_id(_Name, ?N_ROUND_ROBIN, _Treshold,  Next, _Basis)    ->  Next;
+do_calc_id(_Name, ?N_RANDOM_ROBIN, Treshold, _Next, _Basis)    ->  erlang:round(rand:uniform(Treshold));
+do_calc_id(_Name, ?N_HASH_ROBIN,   Treshold, _Next, undefined) ->  erlang:phash2(os:perf_counter(), Treshold);
+do_calc_id(_Name, ?N_HASH_ROBIN,   Treshold, _Next, Basis)     ->  erlang:phash2(Basis, Treshold);
+do_calc_id(Name,  ?N_LEAST_ROBIN,  Treshold,  Next, Basis)     ->
+  ets:foldl().
+
+return_entity(Key) ->
+  ets:update_counter(?MODULE, Key, {?E_USAGE, -1}).
