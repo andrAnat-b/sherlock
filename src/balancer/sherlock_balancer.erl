@@ -29,6 +29,7 @@
 
 -export([get_entity/1]).
 -export([get_entity/2]).
+-export([balance_with_entity/3]).
 
 -export([return_entity/1]).
 
@@ -103,12 +104,30 @@ get_entity(Name, Basis) ->
   {Key, Entity}.
 
 
-do_calc_id(_Name, ?N_ROUND_ROBIN, _Treshold,  Next, _Basis)    ->  Next;
-do_calc_id(_Name, ?N_RANDOM_ROBIN, Treshold, _Next, _Basis)    ->  erlang:round(rand:uniform(Treshold));
-do_calc_id(_Name, ?N_HASH_ROBIN,   Treshold, _Next, undefined) ->  erlang:phash2(os:perf_counter(), Treshold);
-do_calc_id(_Name, ?N_HASH_ROBIN,   Treshold, _Next, Basis)     ->  erlang:phash2(Basis, Treshold);
-do_calc_id(Name,  ?N_LEAST_ROBIN,  Treshold,  Next, Basis)     ->
-  ets:foldl().
+do_calc_id(_Name, ?N_ROUND_ROBIN, _Treshold,  Next, _Basis)     ->  Next;
+do_calc_id(_Name, ?N_RANDOM_ROBIN, Treshold, _Next, _Basis)     ->  erlang:round(rand:uniform(Treshold));
+do_calc_id(_Name, ?N_HASH_ROBIN,   Treshold, _Next,  undefined) ->  erlang:phash2(os:perf_counter(), Treshold);
+do_calc_id(_Name, ?N_HASH_ROBIN,   Treshold, _Next,  Basis)     ->  erlang:phash2(Basis, Treshold);
+do_calc_id(Name,  ?N_LEAST_ROBIN, _Treshold, _Next, _Basis)     ->
+  HD = {{Name, nil}, nil, infinity},
+  Functor = fun
+              ({{NXName, _}, _NEntity, NCount} = New, {{OXName, _}, _OEntity, OCount} = Old) when OXName == NXName ->
+                case NCount < OCount of
+                  true -> New;
+                  _    -> Old
+                end;
+              (_, Old) ->
+                Old
+            end,
+  {{_,BalanceID} = K, _, _} = ets:foldl(Functor, HD, ?MODULE),
+  ets:update_counter(?MODULE, K, {?E_USAGE, 1}),
+  BalanceID.
 
 return_entity(Key) ->
   ets:update_counter(?MODULE, Key, {?E_USAGE, -1}).
+
+balance_with_entity(Name, Alg, Fun) when is_function(Fun, 1) ->
+  {K, Entity} = get_entity(Name, Alg),
+  Result = Fun(Entity),
+  return_entity(K),
+  Result.
