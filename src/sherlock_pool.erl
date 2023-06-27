@@ -217,12 +217,10 @@ fix_cfg(Opts) ->
   MFA = maps:get(mfa, Opts, D#?MODULE.mfa),
   Min = maps:get(min_size, Opts, D#?MODULE.mn_size),
   Max = maps:get(max_size, Opts, max(D#?MODULE.mx_size, Min)),
-  StartCallback = maps:get(start_callback, Opts, undefined),
   #{
     min_size => Min,
     max_size => Max,
-    mfa => MFA,
-    start_callback => fix_start_callback(StartCallback)
+    mfa => MFA
   }.
 
 occup(Name) ->
