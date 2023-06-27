@@ -2,6 +2,13 @@
 
 -include("sherlock_defaults_h.hrl").
 
+-ifdef(SH_META).
+  -define(META_RELOAD, sherlock_meta:reconfig()).
+-else.
+  -define(META_RELOAD, ok).
+-endif.
+
+
 -export([start_pool/2]).
 -export([stop_pool/1]).
 
@@ -12,8 +19,17 @@
 -export([transaction/2]).
 -export([transaction/3]).
 
+-export([start_balancer/2]).
+-export([stop_balancer/1]).
+
+-export([get_balanced_entity/2]).
+-export([ret_balanced_entity/1]).
+-export([with_balancer/3]).
+
 -export([get_pool_metrics/0]).
 -export([get_pool_info/1]).
+
+-export([call_all_in_pool/2]).
 
 -export(['_app_name_'/0]).
 
@@ -27,7 +43,7 @@ start_pool(Name, Opts) ->
   case ?MODULE:get_pool_info(Name) of
     {error, undefined} ->
       StartPoolRes = sherlock_sentry_super_sup:start_child(Name, sherlock_pool:fix_cfg(Opts)),
-      sherlock_meta:reconfig(),
+      ?META_RELOAD,
       StartPoolRes;
     _ ->
       {error, {?MODULE, {pool_already_started, Name}}}
@@ -35,7 +51,7 @@ start_pool(Name, Opts) ->
 
 stop_pool(Name) ->
   StopPoolRes = sherlock_sentry_super_sup:stop_child(Name),
-  sherlock_meta:reconfig(),
+  ?META_RELOAD,
   StopPoolRes.
 
 
@@ -80,6 +96,31 @@ transaction(Name, Fun, Timeout) when is_function(Fun, 1) ->
 
 
 
+start_balancer(Name, Opts) ->
+  sherlock_balancer:new(Name, Opts).
+
+
+
+stop_balancer(Name) ->
+  sherlock_balancer:destroy(Name).
+
+
+
+with_balancer(Name, BalanceFactor, Function) ->
+  sherlock_balancer:balance_with_entity(Name, BalanceFactor, Function).
+
+
+
+get_balanced_entity(Name, BalanceFactor) ->
+  sherlock_balancer:get_entity(Name, BalanceFactor).
+
+
+
+ret_balanced_entity(Key) ->
+  sherlock_balancer:return_entity(Key).
+
+
+
 '_app_name_'() ->
   ?MODULE.
 
@@ -89,3 +130,12 @@ get_pool_metrics() ->
 
 get_pool_info(Poolname) ->
   sherlock_pool:get_info(Poolname).
+
+
+call_all_in_pool(PoolName, CommandFun) ->
+  case sherlock_pool_holder:get_all_workers(PoolName) of
+    [_|_] = List ->
+      [CommandFun(WPid) || WPid <- List];
+    Error ->
+      {error, Error}
+  end.
