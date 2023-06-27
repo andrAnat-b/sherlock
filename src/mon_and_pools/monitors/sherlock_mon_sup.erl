@@ -33,7 +33,7 @@ start_link({Name, Args}) ->
                      MaxR :: non_neg_integer(), MaxT :: non_neg_integer()},
         [ChildSpec :: supervisor:child_spec()]}}
   | ignore | {error, Reason :: term()}).
-init({Name, Args}) ->
+init({Name, _Args}) ->
   MaxRestarts = 1000,
   MaxSecondsBetweenRestarts = 3600,
   SupFlags = #{strategy => one_for_one,
@@ -42,7 +42,7 @@ init({Name, Args}) ->
 
   TabRef = sherlock_config:m_tab(Name),
 
-  MaxSize = maps:get(max_size, Args),
+%%  MaxSize = maps:get(max_size, Args),
 
   IDList = lists:seq(0, sherlock_util:get_schedulers_online() -1),
 

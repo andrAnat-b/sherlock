@@ -102,7 +102,7 @@ start_balancer(Name, Opts) ->
 
 
 stop_balancer(Name) ->
-  sherlock_balancer:destroy(Name)
+  sherlock_balancer:destroy(Name).
 
 
 
