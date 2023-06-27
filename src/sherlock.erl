@@ -124,7 +124,6 @@ ret_balanced_entity(Key) ->
 
 
 
-
 add_to_balancer(Name, Entity) ->
   sherlock_balancer:add_to_balancer(Name, Entity).
 
