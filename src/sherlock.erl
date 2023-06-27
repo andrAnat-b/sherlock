@@ -22,6 +22,9 @@
 -export([start_balancer/2]).
 -export([stop_balancer/1]).
 
+-export([add_to_balancer/2]).
+-export([rem_from_balancer/1]).
+
 -export([get_balanced_entity/2]).
 -export([ret_balanced_entity/1]).
 -export([with_balancer/3]).
@@ -121,15 +124,31 @@ ret_balanced_entity(Key) ->
 
 
 
+
+add_to_balancer(Name, Entity) ->
+  sherlock_balancer:add_to_balancer(Name, Entity).
+
+
+
+rem_from_balancer(Name) ->
+  sherlock_balancer:rem_from_balancer(Name).
+
+
+
 '_app_name_'() ->
   ?MODULE.
+
+
 
 get_pool_metrics() ->
   Names = sherlock_pool:get_all_poolnames(),
   [{Name, ?MODULE:get_pool_info(Name)}||Name<-Names].
 
+
+
 get_pool_info(Poolname) ->
   sherlock_pool:get_info(Poolname).
+
 
 
 call_all_in_pool(PoolName, CommandFun) ->
