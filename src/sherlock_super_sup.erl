@@ -38,10 +38,10 @@ init([]) ->
   },
 
   Balancer = #{
-    id       => sherlock_balancer,
+    id       => sherlock_balancer_wrk,
     restart  => permanent,
     shutdown => 2000,
-    start    => {sherlock_registry, start_link, []},
+    start    => {sherlock_balancer_wrk, start_link, []},
     type     => worker,
     modules  => dynamic
   },
