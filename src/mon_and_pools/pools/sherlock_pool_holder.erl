@@ -112,6 +112,7 @@ handle_info(#resize{secret = S}, State = #sherlock_pool_holder_state{secret = S,
   ActualSizePrev = erlang:length(Workers),
   sherlock_pool:update_csize(Name, ActualSizePrev),
   Direction = pool_resize_direction(Name, ActualSizePrev),
+  lager:log(debug, self(), "[V] RESIZE DIRECTION ~p", [Direction]),
   {AdditionalWorkersPid, NewState} = make_resize(Direction, State, []),
   [sherlock_pool:push_worker(Name, Pid, call) || Pid <- AdditionalWorkersPid],
   resize(S, MSTime),
@@ -125,6 +126,7 @@ handle_info(#'DOWN'{ref = MonRef, id = OldWorker, reason = Reason}, State = #she
   NewWorkersList = [Pid ||Pid<-Work, Pid =/= OldWorker],
   State0 = State#sherlock_pool_holder_state{monitors = NewMon, mirror = NewMir, workers = NewWorkersList},
   {[NewWorker], NewState} = make_resize({enlarge, 1}, State0, []),
+  lager:log(debug, self(),"[X] RESIZE DIRECTION ~p", [{enlarge, 1}]),
   sherlock_pool:replace_worker(Name, OldWorker, NewWorker),
   {noreply, NewState};
 handle_info(_Info, State = #sherlock_pool_holder_state{}) ->
@@ -204,7 +206,7 @@ make_resize({shrink, 0}, State, Acc) ->
   {Acc, State};
 make_resize({shrink, N}, State = #sherlock_pool_holder_state{name = Name}, Acc) ->
   case sherlock_pool:push_job_to_queue(Name, 5) of
-    {ok, Worker} ->
+    {ok, Worker, _Monref} ->
       #sherlock_pool_holder_state{name = Name, workers = WrkL, monitors = Mon, mirror = Mir} = State,
       NewWorkerL = [Pid || Pid <- WrkL, Pid /= Worker],
       {Ref, NewMir} = maps:take(Worker, Mir),

@@ -4,7 +4,6 @@ deps/
 .erlang.mk/
 sherlock.d
 sherlock.iml
-ttb_last_config
 test/*.beam
 log
 .sherlock.plt
