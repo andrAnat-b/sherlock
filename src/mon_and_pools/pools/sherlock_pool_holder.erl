@@ -7,6 +7,8 @@
 -export([call/2]).
 -export([start_link/1]).
 
+-export([poolname/0]).
+
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
@@ -56,6 +58,7 @@ start_link({Name, Args}) ->
 init({Name, Args}) ->
   process_flag(trap_exit, true),
   sherlock_pool:create(Name, Args),
+  set_poolname(Name),
   WorkersWithRefs = do_start_childs(Args),
   List = [sherlock_pool:push_worker(Name, WorkerPid, call) || {_ , WorkerPid} <- WorkersWithRefs],
   PoolSize = erlang:length(List),
@@ -219,3 +222,10 @@ make_resize({shrink, N}, State = #sherlock_pool_holder_state{name = Name}, Acc) 
     _ ->
       make_resize({shrink, N-1}, State, Acc)
   end.
+
+
+set_poolname(Pool) ->
+  erlang:put(pool, Pool).
+
+poolname() ->
+  erlang:get(pool).

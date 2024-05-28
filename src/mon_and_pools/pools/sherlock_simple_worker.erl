@@ -45,7 +45,7 @@ init(Args) ->
                    {noreply, NewState :: #sherlock_simple_worker_state{}, timeout() | hibernate} |
                    {stop, Reason :: term(), Reply :: term(), NewState :: #sherlock_simple_worker_state{}} |
                    {stop, Reason :: term(), NewState :: #sherlock_simple_worker_state{}}).
-handle_call(Request, _From, State = #sherlock_simple_worker_state{args = OldArgs}) when is_function(Request, 2) ->
+handle_call(Request, _From, State = #sherlock_simple_worker_state{args = OldArgs}) when is_function(Request, 1) ->
   {Response, NewArgs} = Request(OldArgs),
   {reply, Response, State#sherlock_simple_worker_state{args = NewArgs}};
 handle_call(_Request, _From, State = #sherlock_simple_worker_state{}) ->
@@ -57,7 +57,7 @@ handle_call(_Request, _From, State = #sherlock_simple_worker_state{}) ->
   {noreply, NewState :: #sherlock_simple_worker_state{}} |
   {noreply, NewState :: #sherlock_simple_worker_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #sherlock_simple_worker_state{}}).
-handle_cast(Request, State = #sherlock_simple_worker_state{args = OldArgs}) when is_function(Request, 2) ->
+handle_cast(Request, State = #sherlock_simple_worker_state{args = OldArgs}) when is_function(Request, 1) ->
   {_Response, NewArgs} = Request(OldArgs),
   {noreply, State#sherlock_simple_worker_state{args = NewArgs}};
 handle_cast(_Request, State = #sherlock_simple_worker_state{}) ->
